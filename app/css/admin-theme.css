@@ -1,0 +1,33 @@
+/* Admin Theme - Blue/Dark */
+.admin-theme {
+  --primary-color: #3b82f6;
+  --primary-hover: #2563eb;
+  --bg-color: #f8fafc;
+  --bg-secondary: #e2e8f0;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --border-color: #e2e8f0;
+  --sidebar-bg: #ffffff;
+  --sidebar-hover: #f1f5f9;
+}
+
+.admin-theme {
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+}
+
+.admin-theme .bg-staff-primary { background-color: var(--primary-color) !important; }
+.admin-theme .bg-staff-bg { background-color: var(--sidebar-bg) !important; }
+.admin-theme .bg-staff-hover { background-color: var(--sidebar-hover) !important; }
+.admin-theme .text-staff-primary { color: var(--primary-color) !important; }
+.admin-theme .text-staff-text { color: var(--text-primary) !important; }
+.admin-theme .border-staff-border { border-color: var(--border-color) !important; }
+
+.admin-theme .btn-primary {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.admin-theme .btn-primary:hover {
+  background-color: var(--primary-hover);
+}

@@ -1,0 +1,33 @@
+/* Staff Theme - Green/Light */
+.staff-theme {
+  --primary-color: #10b981;
+  --primary-hover: #059669;
+  --bg-color: #f0fdf4;
+  --bg-secondary: #dcfce7;
+  --text-primary: #166534;
+  --text-secondary: #4ade80;
+  --border-color: #bbf7d0;
+  --sidebar-bg: #f0fdf4;
+  --sidebar-hover: #ecfdf5;
+}
+
+.staff-theme {
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+}
+
+.staff-theme .bg-staff-primary { background-color: var(--primary-color) !important; }
+.staff-theme .bg-staff-bg { background-color: var(--sidebar-bg) !important; }
+.staff-theme .bg-staff-hover { background-color: var(--sidebar-hover) !important; }
+.staff-theme .text-staff-primary { color: var(--primary-color) !important; }
+.staff-theme .text-staff-text { color: var(--text-primary) !important; }
+.staff-theme .border-staff-border { border-color: var(--border-color) !important; }
+
+.staff-theme .btn-primary {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.staff-theme .btn-primary:hover {
+  background-color: var(--primary-hover);
+}
