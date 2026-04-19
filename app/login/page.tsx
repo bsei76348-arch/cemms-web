@@ -19,7 +19,6 @@ export default function LoginPage() {
 
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      // Redirect based on role (you can add role checking here)
       router.push('/staff/dashboard');
     } catch (err: any) {
       console.error('Login error:', err);
