@@ -1,23 +1,53 @@
-﻿export default function LoginPage() {
+export default function LoginPage() {
   return (
-    <div className=\"min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-blue-50\">
-      <div className=\"max-w-md w-full space-y-8 p-10 bg-white rounded-xl shadow-2xl\">
-        <div className=\"text-center\">
-          <h2 className=\"text-3xl font-bold text-gray-900\">CEMMS Login</h2>
-          <p className=\"mt-2 text-sm text-gray-600\">Green Initiative Program</p>
-        </div>
-        <form className=\"mt-8 space-y-6\">
-          <div className=\"space-y-4\">
-            <div>
-              <label className=\"block text-sm font-medium text-gray-700\">Email</label>
-              <input type=\"email\" className=\"mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm\" />
-            </div>
-            <div>
-              <label className=\"block text-sm font-medium text-gray-700\">Password</label>
-              <input type=\"password\" className=\"mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm\" />
-            </div>
+    <div style={{ 
+      minHeight: '100vh', 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      backgroundColor: '#f0fdf4'
+    }}>
+      <div style={{ 
+        padding: '2rem', 
+        backgroundColor: 'white', 
+        borderRadius: '0.5rem',
+        boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+        maxWidth: '400px',
+        width: '100%'
+      }}>
+        <h1 style={{ fontSize: '2rem', fontWeight: 'bold', color: '#22c55e', marginBottom: '1rem' }}>
+          CEMMS Login
+        </h1>
+        <form>
+          <div style={{ marginBottom: '1rem' }}>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Email</label>
+            <input 
+              type="email" 
+              style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '0.375rem' }}
+              placeholder="staff@cemms.com"
+            />
           </div>
-          <button className=\"w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700\">
+          <div style={{ marginBottom: '1rem' }}>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Password</label>
+            <input 
+              type="password" 
+              style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '0.375rem' }}
+              placeholder="••••••••"
+            />
+          </div>
+          <button 
+            type="submit"
+            style={{ 
+              width: '100%', 
+              padding: '0.75rem', 
+              backgroundColor: '#22c55e', 
+              color: 'white', 
+              border: 'none', 
+              borderRadius: '0.375rem',
+              fontSize: '1rem',
+              cursor: 'pointer'
+            }}
+          >
             Sign In
           </button>
         </form>
