@@ -1,11 +1,11 @@
-// app/admin/users/page.tsx – Optimized with real-time updates
+// app/admin/users/page.tsx – Fast loading with cached data + background sync
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth, db } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';
-import { collection, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, deleteDoc, updateDoc, setDoc, serverTimestamp, getDocs } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import AdminSidebar from '../../lib/AdminSidebar';
 import { Users, User, Shield, UserCog, Plus, FileText, Search, Calendar, Pencil, Trash2, RefreshCw, X, CheckCircle, AlertTriangle } from 'lucide-react';
@@ -23,18 +23,52 @@ interface UserType {
 
 interface Toast { id: string; type: 'success' | 'error' | 'info'; message: string; }
 
+const USERS_CACHE_KEY = 'cemms_users_cache';
+const USERS_CACHE_TS_KEY = 'cemms_users_cache_ts';
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 // Helper: get current user (Firebase or mock)
 const getCurrentUser = () => {
   if (auth.currentUser) return auth.currentUser;
   if (typeof window !== 'undefined') {
     const stored = localStorage.getItem('cemms_user');
     if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch {}
+      try { return JSON.parse(stored); } catch {}
     }
   }
   return null;
+};
+
+// Load cached users from localStorage for instant render
+const getCachedUsers = (): UserType[] | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const ts = localStorage.getItem(USERS_CACHE_TS_KEY);
+    if (!ts) return null;
+    const age = Date.now() - parseInt(ts, 10);
+    if (age > CACHE_TTL_MS) return null;
+    const raw = localStorage.getItem(USERS_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+};
+
+const saveCachedUsers = (users: UserType[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(USERS_CACHE_KEY, JSON.stringify(users));
+    localStorage.setItem(USERS_CACHE_TS_KEY, Date.now().toString());
+  } catch {}
+};
+
+// Compute stats from users list
+const computeStats = (usersList: UserType[]) => {
+  let admins = 0, staff = 0, regular = 0;
+  usersList.forEach(u => {
+    if (u.role === 'admin') admins++;
+    else if (u.role === 'staff') staff++;
+    else regular++;
+  });
+  return { total: usersList.length, admins, staff, regular_users: regular };
 };
 
 export default function UsersPage() {
@@ -52,59 +86,77 @@ export default function UsersPage() {
   const toastIdRef = useRef(0);
   const router = useRouter();
 
-  const addToast = (type: Toast['type'], message: string) => {
+  const addToast = useCallback((type: Toast['type'], message: string) => {
     const id = `toast-${toastIdRef.current++}-${Date.now()}`;
     setToasts(prev => [...prev, { id, type, message }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
-  };
-
-  // Real-time listener for users collection
-  useEffect(() => {
-    const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, 
-      (snapshot) => {
-        const usersList: UserType[] = [];
-        let adminCount = 0, staffCount = 0, userCount = 0;
-
-        snapshot.forEach((doc) => {
-          const data = doc.data();
-          const role = data.role || 'user';
-          const userData: UserType = {
-            id: doc.id,
-            uid: data.uid || doc.id,
-            email: data.email || '',
-            role,
-            username: data.username || data.name || data.email?.split('@')[0] || 'User',
-            barangay: data.barangay || data.assignedBarangay || '',
-            lastLogin: data.lastLogin || null,
-            createdAt: data.createdAt || null
-          };
-          usersList.push(userData);
-          if (role === 'admin') adminCount++;
-          else if (role === 'staff') staffCount++;
-          else userCount++;
-        });
-
-        setUsers(usersList);
-        setStats({
-          total: usersList.length,
-          admins: adminCount,
-          staff: staffCount,
-          regular_users: userCount
-        });
-        setLoading(false);
-      },
-      (error) => {
-        console.error('Users listener error:', error);
-        addToast('error', 'Failed to load users');
-        setLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
   }, []);
 
-  // Authentication check (only once)
+  // Process snapshot docs into users + stats
+  const processSnapshot = useCallback((snapshot: any): UserType[] => {
+    const usersList: UserType[] = [];
+    snapshot.forEach((docSnap: any) => {
+      const data = docSnap.data();
+      const role = data.role || 'user';
+      usersList.push({
+        id: docSnap.id,
+        uid: data.uid || docSnap.id,
+        email: data.email || '',
+        role,
+        username: data.username || data.name || data.email?.split('@')[0] || 'User',
+        barangay: data.barangay || data.assignedBarangay || '',
+        lastLogin: data.lastLogin || null,
+        createdAt: data.createdAt || null,
+      });
+    });
+    return usersList;
+  }, []);
+
+  // Fast initial load: try cache first, then getDocs (faster than onSnapshot for first paint)
+  useEffect(() => {
+    let mounted = true;
+
+    const loadUsers = async () => {
+      // 1. Show cached data instantly if available
+      const cached = getCachedUsers();
+      if (cached && mounted) {
+        setUsers(cached);
+        setStats(computeStats(cached));
+        setLoading(false);
+      }
+
+      // 2. Fetch fresh data via getDocs WITHOUT orderBy/limit (no index needed)
+      try {
+        const snap = await getDocs(collection(db, 'users'));
+        if (!mounted) return;
+        const fresh = processSnapshot(snap);
+        // Client-side sort by createdAt desc if available
+        fresh.sort((a, b) => {
+          const aTime = a.createdAt?.seconds || a.createdAt?._seconds || 0;
+          const bTime = b.createdAt?.seconds || b.createdAt?._seconds || 0;
+          return bTime - aTime;
+        });
+        setUsers(fresh);
+        setStats(computeStats(fresh));
+        saveCachedUsers(fresh);
+        setLoading(false);
+      } catch (err: any) {
+        console.error('Users fetch error:', err);
+        if (mounted) {
+          addToast('error', 'Failed to load users: ' + (err.message || 'Unknown error'));
+          setLoading(false);
+        }
+      }
+    };
+
+    loadUsers();
+
+    return () => {
+      mounted = false;
+    };
+  }, [processSnapshot, addToast]);
+
+  // Authentication check
   useEffect(() => {
     const user = getCurrentUser();
     if (user) {
@@ -131,7 +183,17 @@ export default function UsersPage() {
     try {
       await deleteDoc(doc(db, 'users', userId));
       addToast('success', 'User deleted successfully');
-      // No need to call fetchUsers because onSnapshot updates automatically
+      // Refresh list after delete
+      const snap = await getDocs(collection(db, 'users'));
+      const fresh = processSnapshot(snap);
+      fresh.sort((a, b) => {
+        const aTime = a.createdAt?.seconds || a.createdAt?._seconds || 0;
+        const bTime = b.createdAt?.seconds || b.createdAt?._seconds || 0;
+        return bTime - aTime;
+      });
+      setUsers(fresh);
+      setStats(computeStats(fresh));
+      saveCachedUsers(fresh);
     } catch (error: any) {
       addToast('error', `Delete failed: ${error.message}`);
     } finally {
@@ -159,6 +221,17 @@ export default function UsersPage() {
       addToast('success', 'User updated successfully');
       setShowEditModal(false);
       setEditingUser(null);
+      // Refresh list
+      const snap = await getDocs(collection(db, 'users'));
+      const fresh = processSnapshot(snap);
+      fresh.sort((a, b) => {
+        const aTime = a.createdAt?.seconds || a.createdAt?._seconds || 0;
+        const bTime = b.createdAt?.seconds || b.createdAt?._seconds || 0;
+        return bTime - aTime;
+      });
+      setUsers(fresh);
+      setStats(computeStats(fresh));
+      saveCachedUsers(fresh);
     } catch (error: any) {
       addToast('error', `Update failed: ${error.message}`);
     } finally {
@@ -193,7 +266,17 @@ export default function UsersPage() {
       });
       addToast('success', `User ${username} created successfully`);
       setShowAddModal(false);
-      // The real-time listener will pick up the new user automatically
+      // Refresh list
+      const snap = await getDocs(collection(db, 'users'));
+      const fresh = processSnapshot(snap);
+      fresh.sort((a, b) => {
+        const aTime = a.createdAt?.seconds || a.createdAt?._seconds || 0;
+        const bTime = b.createdAt?.seconds || b.createdAt?._seconds || 0;
+        return bTime - aTime;
+      });
+      setUsers(fresh);
+      setStats(computeStats(fresh));
+      saveCachedUsers(fresh);
     } catch (err: any) {
       if (err.code === 'auth/email-already-in-use') {
         addToast('error', 'Email already in use');
@@ -215,12 +298,16 @@ export default function UsersPage() {
     }
   };
 
-  const filteredUsers = users.filter(user =>
-    user.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.role?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.barangay?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredUsers = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return users;
+    return users.filter(user =>
+      user.username?.toLowerCase().includes(term) ||
+      user.email?.toLowerCase().includes(term) ||
+      user.role?.toLowerCase().includes(term) ||
+      user.barangay?.toLowerCase().includes(term)
+    );
+  }, [users, searchTerm]);
 
   if (loading) {
     return (
@@ -361,7 +448,7 @@ export default function UsersPage() {
                           {user.username}
                           {user.id === currentUser?.uid && <span className="you-badge">YOU</span>}
                         </div>
-                      </td>
+                       </td>
                       <td>{user.email}</td>
                       <td><span className={`role-badge ${user.role}`}>{user.role.toUpperCase()}</span></td>
                       <td>{user.barangay || '—'}</td>
