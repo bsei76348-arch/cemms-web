@@ -130,14 +130,43 @@ export default function StaffRecordsPage() {
   }, []);
 
   useEffect(() => {
+    const checkAuth = async () => {
+      const firebaseUser = auth.currentUser;
+      if (firebaseUser) {
+        setUser(firebaseUser);
+        await fetchAllData();
+        setLoading(false);
+        return;
+      }
+      // Fallback: check localStorage for mock user
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem('cemms_user');
+        if (stored) {
+          try {
+            const mock = JSON.parse(stored);
+            setUser({ uid: mock.uid, email: mock.email, displayName: mock.role });
+            await fetchAllData();
+            setLoading(false);
+            return;
+          } catch (e) {
+            console.error('Failed to parse mock user:', e);
+          }
+        }
+      }
+      router.push('/login');
+      setLoading(false);
+    };
+    checkAuth();
+
     const unsubscribeAuth = auth.onAuthStateChanged(async (u) => {
       if (u) {
         setUser(u);
-        await fetchAllData();
       } else {
-        router.push('/login');
+        // Only redirect if no localStorage mock user exists
+        if (typeof window !== 'undefined' && !localStorage.getItem('cemms_user')) {
+          router.push('/login');
+        }
       }
-      setLoading(false);
     });
     return () => unsubscribeAuth();
   }, [router]);

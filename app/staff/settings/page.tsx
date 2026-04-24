@@ -58,37 +58,33 @@ export default function StaffSettings() {
   };
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (authUser) => {
-      if (authUser) {
-        setUser(authUser);
-        
+    const checkAuth = async () => {
+      const firebaseUser = auth.currentUser;
+      if (firebaseUser) {
+        setUser(firebaseUser);
         try {
-          // Load user profile from Firestore
-          const userDoc = await getDoc(doc(db, 'users', authUser.uid));
-          const authDisplayName = authUser.displayName || '';
-          
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          const authDisplayName = firebaseUser.displayName || '';
           if (userDoc.exists()) {
             const userData = userDoc.data();
             setStaffDetails({
               fullname: userData.name || userData.fullname || authDisplayName || '',
               displayName: authDisplayName,
-              email: authUser.email || '',
+              email: firebaseUser.email || '',
               contact: userData.contact || '',
-              username: userData.username || authUser.email?.split('@')[0] || 'staff',
+              username: userData.username || firebaseUser.email?.split('@')[0] || 'staff',
               assigned_barangay: userData.assignedBarangay || userData.barangay || 'Not assigned'
             });
           } else {
             setStaffDetails({
-              fullname: authDisplayName || authUser.email?.split('@')[0] || 'Staff User',
+              fullname: authDisplayName || firebaseUser.email?.split('@')[0] || 'Staff User',
               displayName: authDisplayName,
-              email: authUser.email || '',
+              email: firebaseUser.email || '',
               contact: '',
-              username: authUser.email?.split('@')[0] || 'staff',
+              username: firebaseUser.email?.split('@')[0] || 'staff',
               assigned_barangay: 'Not assigned'
             });
           }
-          
-          // Load system settings (read-only)
           const settingsDoc = await getDoc(doc(db, 'settings', 'general'));
           if (settingsDoc.exists()) {
             const data = settingsDoc.data();
@@ -99,10 +95,48 @@ export default function StaffSettings() {
           console.error('Error fetching data:', error);
           addToast('error', 'Failed to load profile data');
         }
-      } else {
-        router.push('/login');
+        setLoading(false);
+        return;
       }
+
+      // Fallback: check localStorage for mock user
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem('cemms_user');
+        if (stored) {
+          try {
+            const mock = JSON.parse(stored);
+            const mockUser = { uid: mock.uid, email: mock.email, displayName: mock.role };
+            setUser(mockUser);
+            setStaffDetails({
+              fullname: mock.email?.split('@')[0] || 'Staff User',
+              displayName: mock.role || '',
+              email: mock.email || '',
+              contact: '',
+              username: mock.email?.split('@')[0] || 'staff',
+              assigned_barangay: 'Not assigned'
+            });
+            setLoading(false);
+            return;
+          } catch (e) {
+            console.error('Failed to parse mock user:', e);
+          }
+        }
+      }
+
+      router.push('/login');
       setLoading(false);
+    };
+    checkAuth();
+
+    const unsubscribe = auth.onAuthStateChanged(async (authUser) => {
+      if (authUser) {
+        setUser(authUser);
+      } else {
+        // Only redirect if no localStorage mock user exists
+        if (typeof window !== 'undefined' && !localStorage.getItem('cemms_user')) {
+          router.push('/login');
+        }
+      }
     });
 
     return () => unsubscribe();

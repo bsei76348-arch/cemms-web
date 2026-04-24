@@ -1,15 +1,16 @@
-// app/staff/reports/page.tsx – Fixed with mock user support
+// app/admin/reports/page.tsx – Full working admin reports with flag management
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth, mobileDb, webCemmsDb } from '@/app/lib/combinedFirebase';
-import { collection, getDocs, addDoc, updateDoc, doc, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { signOut } from 'firebase/auth';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, onSnapshot } from 'firebase/firestore';
 import {
   FileText, Leaf, BarChart3, Ruler, Award, Calendar,
   Download, Printer, RefreshCw, Filter, X, Flag, Eye, Check, Clock,
   TrendingUp, Monitor, Smartphone, ChevronUp, ChevronDown,
-  MapPin, AlertTriangle, CheckCircle, Info
+  MapPin, AlertTriangle, CheckCircle, Info, Trash2
 } from 'lucide-react';
 import AdminSidebar from '@/app/lib/AdminSidebar';
 
@@ -95,13 +96,12 @@ export default function AdminReports() {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   };
 
-  // Fetch all emission data from three sources
-
+  // Logout function
   const handleLogout = async () => {
     try {
       await signOut(auth);
     } catch (e) {
-      console.log('Sign out error (mock user):', e);
+      console.log('Sign out error:', e);
     } finally {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('cemms_user');
@@ -110,6 +110,7 @@ export default function AdminReports() {
     }
   };
 
+  // Fetch all emission data from three sources
   const fetchAllData = async () => {
     setIsGenerating(true);
     try {
@@ -310,11 +311,12 @@ export default function AdminReports() {
 
   const printReport = () => window.print();
 
-  // Flag management
-  const fetchFlags = async () => {
-    try {
-      const q = query(collection(webCemmsDb, 'flags'), orderBy('createdAt', 'desc'));
-      const snapshot = await getDocs(q);
+  // --- FLAG MANAGEMENT (with real-time listener and delete) ---
+  
+  // Real-time listener for flags
+  useEffect(() => {
+    const q = query(collection(webCemmsDb, 'flags'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       const flagsData: Flag[] = snapshot.docs.map(doc => {
         const data = doc.data();
         return {
@@ -329,11 +331,12 @@ export default function AdminReports() {
         };
       });
       setFlags(flagsData);
-    } catch (error) {
-      console.error(error);
+    }, (error) => {
+      console.error('Flags listener error:', error);
       addToast('error', 'Failed to load flags');
-    }
-  };
+    });
+    return () => unsubscribe();
+  }, []);
 
   const handleFlagBarangay = async (barangay: string, emission: number) => {
     if (emission === 0) {
@@ -348,14 +351,14 @@ export default function AdminReports() {
       const newFlag: Omit<Flag, 'id'> = {
         barangay,
         emissionLevel: emission,
-        flaggedBy: user?.uid || 'staff-unknown',
-        flaggedByName: user?.email?.split('@')[0] || 'staff',
+        flaggedBy: user?.uid || 'admin-unknown',
+        flaggedByName: user?.email?.split('@')[0] || 'admin',
         createdAt: new Date(),
         status: 'pending',
         reason,
       };
       const docRef = await addDoc(collection(webCemmsDb, 'flags'), newFlag);
-      setFlags(prev => [{ id: docRef.id, ...newFlag }, ...prev]);
+      // No need to manually update state because onSnapshot will update
       addToast('success', `${barangay} flagged successfully!`);
     } catch (error: any) {
       console.error(error);
@@ -369,15 +372,23 @@ export default function AdminReports() {
     if (!confirm(`Mark as ${newStatus}?`)) return;
     try {
       await updateDoc(doc(webCemmsDb, 'flags', flagId), { status: newStatus });
-      setFlags(prev => prev.map(f => f.id === flagId ? { ...f, status: newStatus } : f));
       addToast('success', `Flag ${newStatus}`);
     } catch (error) {
       addToast('error', 'Update failed');
     }
   };
 
+  const handleDeleteFlag = async (flagId: string) => {
+    if (!confirm('Delete this flag permanently?')) return;
+    try {
+      await deleteDoc(doc(webCemmsDb, 'flags', flagId));
+      addToast('success', 'Flag deleted');
+    } catch (error) {
+      addToast('error', 'Delete failed');
+    }
+  };
 
-  // Real-time listeners for live sync
+  // Real-time listeners for live sync (emissions data)
   useEffect(() => {
     const unsubCalc = onSnapshot(collection(mobileDb, 'calculations'), () => fetchAllData());
     const unsubBills = onSnapshot(collection(mobileDb, 'bills'), () => fetchAllData());
@@ -385,28 +396,28 @@ export default function AdminReports() {
     return () => { unsubCalc(); unsubBills(); unsubEmissions(); };
   }, []);
 
-  // Authentication with mock fallback
+  // Authentication with mock fallback (admin only)
   useEffect(() => {
     const checkAuth = async () => {
-      // First, check Firebase auth
       const firebaseUser = auth.currentUser;
       if (firebaseUser) {
         setUser(firebaseUser);
         await fetchAllData();
-        await fetchFlags();
         setLoading(false);
         return;
       }
-      
-      // Fallback to mock user from localStorage
       if (typeof window !== 'undefined') {
         const stored = localStorage.getItem('cemms_user');
         if (stored) {
           try {
             const mock = JSON.parse(stored);
+            // Only allow admin role
+            if (mock.role !== 'admin') {
+              router.push('/staff/dashboard');
+              return;
+            }
             setUser({ uid: mock.uid, email: mock.email, displayName: mock.role });
             await fetchAllData();
-            await fetchFlags();
             setLoading(false);
             return;
           } catch (e) {
@@ -414,24 +425,17 @@ export default function AdminReports() {
           }
         }
       }
-      
-      // No user, redirect to login
       router.push('/login');
       setLoading(false);
     };
-    
     checkAuth();
-    
-    // Also listen for real-time auth changes (in case of real login)
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
         await fetchAllData();
-        await fetchFlags();
         setLoading(false);
       }
     });
-    
     return () => unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
@@ -444,7 +448,7 @@ export default function AdminReports() {
     );
   }
 
-  const userName = user?.email?.split('@')[0] || 'Staff';
+  const userName = user?.email?.split('@')[0] || 'Admin';
   const pendingCount = flags.filter(f => f.status === 'pending').length;
 
   const SortIcon = ({ field }: { field: string }) => {
@@ -473,8 +477,8 @@ export default function AdminReports() {
         {/* Header */}
         <div className="header-card">
           <div>
-            <h1>Emission Reports</h1>
-            <p>Monitor and analyze household carbon emissions across 16 barangays of Marilao</p>
+            <h1>Admin Emission Reports</h1>
+            <p>Full control over carbon emissions and flag management across 16 barangays</p>
           </div>
           <div className="header-actions">
             <button className="icon-btn" onClick={fetchAllData} disabled={isGenerating}>
@@ -483,7 +487,7 @@ export default function AdminReports() {
             <button className="icon-btn" onClick={exportCSV} disabled={filteredRecords.length === 0}>
               <Download size={16} /> Export
             </button>
-            <div className="staff-badge">
+            <div className="admin-badge">
               <span className="live-dot"></span> ADMIN
             </div>
             <div className="date-badge">
@@ -704,16 +708,19 @@ export default function AdminReports() {
                             </span>
                           </td>
                           <td>
-                            {flag.status === 'pending' ? (
-                              <div className="action-buttons">
-                                <button className="btn-review" onClick={() => handleUpdateFlagStatus(flag.id, 'reviewed')}>Review</button>
+                            <div className="action-buttons">
+                              {flag.status === 'pending' && (
+                                <>
+                                  <button className="btn-review" onClick={() => handleUpdateFlagStatus(flag.id, 'reviewed')}>Review</button>
+                                  <button className="btn-resolve" onClick={() => handleUpdateFlagStatus(flag.id, 'resolved')}>Resolve</button>
+                                </>
+                              )}
+                              {flag.status === 'reviewed' && (
                                 <button className="btn-resolve" onClick={() => handleUpdateFlagStatus(flag.id, 'resolved')}>Resolve</button>
-                              </div>
-                            ) : flag.status === 'reviewed' ? (
-                              <button className="btn-resolve" onClick={() => handleUpdateFlagStatus(flag.id, 'resolved')}>Resolve</button>
-                            ) : (
-                              <span className="resolved-text">✓ Resolved</span>
-                            )}
+                              )}
+                              {flag.status === 'resolved' && <span className="resolved-text">✓ Resolved</span>}
+                              <button className="btn-delete" onClick={() => handleDeleteFlag(flag.id)} title="Delete flag"><Trash2 size={14} /></button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -830,21 +837,21 @@ export default function AdminReports() {
           opacity: 0.6;
           cursor: not-allowed;
         }
-        .staff-badge {
+        .admin-badge {
           display: flex;
           align-items: center;
           gap: 8px;
-          background: #FEF2F2;
+          background: #1E3A8A;
           padding: 8px 18px;
           border-radius: 44px;
           font-size: 13px;
           font-weight: 700;
-          color: #DC2626;
+          color: white;
         }
         .live-dot {
           width: 8px;
           height: 8px;
-          background: #DC2626;
+          background: #60A5FA;
           border-radius: 50%;
           animation: pulse 2s infinite;
         }
@@ -1229,18 +1236,27 @@ export default function AdminReports() {
         .status-badge.reviewed { background: #3B82F6; }
         .status-badge.resolved { background: #14B89D; }
         .emission-high { color: #DC2626; font-weight: 700; }
-        .action-buttons { display: flex; gap: 8px; }
-        .btn-review, .btn-resolve {
-          padding: 4px 14px;
+        .action-buttons {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        .btn-review, .btn-resolve, .btn-delete {
+          padding: 4px 12px;
           border-radius: 40px;
           font-size: 12px;
           font-weight: 600;
           border: none;
           cursor: pointer;
           color: white;
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
         }
         .btn-review { background: #3B82F6; }
         .btn-resolve { background: #14B89D; }
+        .btn-delete { background: #DC2626; }
         .resolved-text { color: #14B89D; font-weight: 600; display: flex; align-items: center; gap: 4px; }
         .empty-state {
           text-align: center;

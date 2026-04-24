@@ -1,12 +1,11 @@
-// app/admin/users/page.tsx – Teal Green Theme (no approval needed)
+// app/admin/users/page.tsx – Optimized with real-time updates
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth, db } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';
-import { onAuthStateWithRole, UserRole } from '@/lib/auth';
-import { collection, query, orderBy, getDocs, doc, deleteDoc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import AdminSidebar from '../../lib/AdminSidebar';
 import { Users, User, Shield, UserCog, Plus, FileText, Search, Calendar, Pencil, Trash2, RefreshCw, X, CheckCircle, AlertTriangle } from 'lucide-react';
@@ -24,15 +23,14 @@ interface UserType {
 
 interface Toast { id: string; type: 'success' | 'error' | 'info'; message: string; }
 
-// Helper to get mock user (for hardcoded login)
-const getSafeCurrentUser = () => {
+// Helper: get current user (Firebase or mock)
+const getCurrentUser = () => {
   if (auth.currentUser) return auth.currentUser;
   if (typeof window !== 'undefined') {
     const stored = localStorage.getItem('cemms_user');
     if (stored) {
       try {
-        const mock = JSON.parse(stored);
-        return { uid: mock.uid, email: mock.email, displayName: mock.role };
+        return JSON.parse(stored);
       } catch {}
     }
   }
@@ -44,12 +42,7 @@ export default function UsersPage() {
   const [users, setUsers] = useState<UserType[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [stats, setStats] = useState({
-    total: 0,
-    admins: 0,
-    staff: 0,
-    regular_users: 0
-  });
+  const [stats, setStats] = useState({ total: 0, admins: 0, staff: 0, regular_users: 0 });
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserType | null>(null);
@@ -65,91 +58,90 @@ export default function UsersPage() {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   };
 
+  // Real-time listener for users collection
   useEffect(() => {
-    const unsubscribe = onAuthStateWithRole(async (userRole: UserRole | null) => {
-      if (userRole) {
-        setCurrentUser(userRole);
-        await fetchUsers();
-      } else {
-        const mock = getSafeCurrentUser();
-        if (mock) {
-          setCurrentUser(mock);
-          await fetchUsers();
+    const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, 
+      (snapshot) => {
+        const usersList: UserType[] = [];
+        let adminCount = 0, staffCount = 0, userCount = 0;
+
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          const role = data.role || 'user';
+          const userData: UserType = {
+            id: doc.id,
+            uid: data.uid || doc.id,
+            email: data.email || '',
+            role,
+            username: data.username || data.name || data.email?.split('@')[0] || 'User',
+            barangay: data.barangay || data.assignedBarangay || '',
+            lastLogin: data.lastLogin || null,
+            createdAt: data.createdAt || null
+          };
+          usersList.push(userData);
+          if (role === 'admin') adminCount++;
+          else if (role === 'staff') staffCount++;
+          else userCount++;
+        });
+
+        setUsers(usersList);
+        setStats({
+          total: usersList.length,
+          admins: adminCount,
+          staff: staffCount,
+          regular_users: userCount
+        });
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Users listener error:', error);
+        addToast('error', 'Failed to load users');
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  // Authentication check (only once)
+  useEffect(() => {
+    const user = getCurrentUser();
+    if (user) {
+      setCurrentUser(user);
+    } else {
+      const unsubscribe = auth.onAuthStateChanged((firebaseUser) => {
+        if (firebaseUser) {
+          setCurrentUser(firebaseUser);
         } else {
           router.push('/login');
         }
-      }
-      setLoading(false);
-    });
-    return unsubscribe;
-  }, [router]);
-
-  const fetchUsers = async () => {
-    try {
-      const usersQuery = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
-      const querySnapshot = await getDocs(usersQuery);
-      
-      const usersList: UserType[] = [];
-      let adminCount = 0;
-      let staffCount = 0;
-      let userCount = 0;
-
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        const userData: UserType = {
-          id: doc.id,
-          uid: data.uid || doc.id,
-          email: data.email || '',
-          role: data.role || 'user',
-          username: data.username || data.name || data.email?.split('@')[0] || 'User',
-          barangay: data.barangay || data.assignedBarangay || '',
-          lastLogin: data.lastLogin || null,
-          createdAt: data.createdAt || null
-        };
-        usersList.push(userData);
-        
-        if (userData.role === 'admin') adminCount++;
-        else if (userData.role === 'staff') staffCount++;
-        else userCount++;
       });
-
-      setUsers(usersList);
-      setStats({
-        total: usersList.length,
-        admins: adminCount,
-        staff: staffCount,
-        regular_users: userCount
-      });
-    } catch (error) {
-      console.error('Error fetching users:', error);
-      addToast('error', 'Failed to load users');
+      return () => unsubscribe();
     }
-  };
+  }, [router]);
 
   const handleDelete = async (userId: string) => {
     if (userId === currentUser?.uid) {
       addToast('error', 'You cannot delete your own account!');
       return;
     }
-
-    if (confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
-      setDeleteLoading(userId);
-      try {
-        await deleteDoc(doc(db, 'users', userId));
-        addToast('success', 'User deleted successfully');
-        await fetchUsers();
-      } catch (error: any) {
-        addToast('error', `Delete failed: ${error.message}`);
-      } finally {
-        setDeleteLoading(null);
-      }
+    if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
+    setDeleteLoading(userId);
+    try {
+      await deleteDoc(doc(db, 'users', userId));
+      addToast('success', 'User deleted successfully');
+      // No need to call fetchUsers because onSnapshot updates automatically
+    } catch (error: any) {
+      addToast('error', `Delete failed: ${error.message}`);
+    } finally {
+      setDeleteLoading(null);
     }
   };
 
   const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
-
     setOperationLoading(true);
     try {
       const form = e.target as HTMLFormElement;
@@ -164,11 +156,9 @@ export default function UsersPage() {
         barangay,
         updatedAt: serverTimestamp()
       });
-
       addToast('success', 'User updated successfully');
       setShowEditModal(false);
       setEditingUser(null);
-      await fetchUsers();
     } catch (error: any) {
       addToast('error', `Update failed: ${error.message}`);
     } finally {
@@ -191,7 +181,6 @@ export default function UsersPage() {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // Admin-created users are automatically active (no approval needed)
       await setDoc(doc(db, 'users', user.uid), {
         uid: user.uid,
         username,
@@ -202,10 +191,9 @@ export default function UsersPage() {
         updatedAt: serverTimestamp(),
         lastLogin: null
       });
-
       addToast('success', `User ${username} created successfully`);
       setShowAddModal(false);
-      await fetchUsers();
+      // The real-time listener will pick up the new user automatically
     } catch (err: any) {
       if (err.code === 'auth/email-already-in-use') {
         addToast('error', 'Email already in use');
@@ -227,7 +215,7 @@ export default function UsersPage() {
     }
   };
 
-  const filteredUsers = users.filter(user => 
+  const filteredUsers = users.filter(user =>
     user.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.role?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -244,7 +232,6 @@ export default function UsersPage() {
   }
 
   const userName = currentUser?.email?.split('@')[0] || 'Admin';
-
   const barangays = [
     'Abangan Norte', 'Abangan Sur', 'Ibayo', 'Lambakin', 'Lias',
     'Loma de Gato', 'Nagbalon', 'Patubig', 'Poblacion I', 'Poblacion II',
@@ -275,6 +262,9 @@ export default function UsersPage() {
             <p>Manage admin, staff, and regular user accounts</p>
           </div>
           <div className="header-actions">
+            <button className="icon-btn" onClick={() => {}}>
+              <RefreshCw size={14} /> Sync
+            </button>
             <div className="live-badge"><span className="live-dot"></span> LIVE</div>
             <div className="date-badge"><Calendar size={14} /> {new Date().toLocaleDateString()}</div>
           </div>
@@ -402,8 +392,8 @@ export default function UsersPage() {
                             </button>
                           )}
                         </div>
-                      </td>
-                    </tr>
+                       </td>
+                     </tr>
                   ))}
                 </tbody>
               </table>
@@ -583,6 +573,24 @@ export default function UsersPage() {
           gap: 14px;
           align-items: center;
           flex-wrap: wrap;
+        }
+        .icon-btn {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          background: white;
+          border: 1px solid #9FE5D5;
+          padding: 8px 18px;
+          border-radius: 44px;
+          font-size: 13px;
+          cursor: pointer;
+          color: #0F5C4B;
+          font-weight: 500;
+          transition: all 0.2s;
+        }
+        .icon-btn:hover {
+          background: #E6F7F3;
+          transform: translateY(-1px);
         }
         .live-badge {
           display: flex;

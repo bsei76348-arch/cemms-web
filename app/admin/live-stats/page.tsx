@@ -1,4 +1,4 @@
-// app/admin/live-stats/page.tsx – Fixed: single Firestore instance
+// app/admin/live-stats/page.tsx – Fixed with working details modal
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -31,17 +31,27 @@ const barangays = [
   'Santa Rosa I', 'Santa Rosa II', 'Saog', 'Tabing Ilog'
 ];
 
-// Gradient from teal (#14B89D) to pastel yellow-green (#D4E8B3)
-const getGradientColor = (value: number, max: number): string => {
-  if (max === 0) return '#14B89D';
-  const ratio = value / max; // 0 = low, 1 = high
-  const start = { r: 20, g: 184, b: 157 }; // #14B89D
-  const end = { r: 212, g: 232, b: 179 };   // #D4E8B3
-  const r = Math.round(start.r + (end.r - start.r) * ratio);
-  const g = Math.round(start.g + (end.g - start.g) * ratio);
-  const b = Math.round(start.b + (end.b - start.b) * ratio);
-  return `rgb(${r}, ${g}, ${b})`;
+// Fixed colors for each barangay
+const BARANGAY_COLORS: Record<string, string> = {
+  'Abangan Norte': '#27d8b1',
+  'Abangan Sur': '#2dd28e',
+  'Ibayo': '#21de6c',
+  'Lambakin': '#23dc4e',
+  'Lias': '#46c837',
+  'Loma de Gato': '#5fd926',
+  'Nagbalon': '#75c03f',
+  'Patubig': '#97c03f',
+  'Poblacion I': '#b7cd32',
+  'Poblacion II': '#cadf20',
+  'Prenza I': '#04fbe5',
+  'Prenza II': '#1be4a6',
+  'Santa Rosa I': '#31cebc',
+  'Santa Rosa II': '#2ec0d1',
+  'Saog': '#08caf7',
+  'Tabing Ilog': '#cfc030'
 };
+const FALLBACK_COLOR = '#94A3B8';
+const getBarangayColor = (name: string) => BARANGAY_COLORS[name] || FALLBACK_COLOR;
 
 const getEmissionLevel = (emission: number): string => {
   if (emission === 0) return 'No Data';
@@ -92,7 +102,7 @@ export default function LiveStatsPage() {
       const recordsCount: Record<string, number> = {};
       barangays.forEach(b => { emissionsMap[b] = 0; recordsCount[b] = 0; });
 
-      // Both collections from the same Firestore instance
+      // Web emissions
       const webSnap = await getDocs(collection(webCemmsDb, 'emissions'));
       webSnap.forEach(doc => {
         const data = doc.data();
@@ -104,7 +114,8 @@ export default function LiveStatsPage() {
         }
       });
 
-      const mobileSnap = await getDocs(collection(mobileDb, 'calculations')); // mobile app data
+      // Mobile calculations
+      const mobileSnap = await getDocs(collection(mobileDb, 'calculations'));
       mobileSnap.forEach(doc => {
         const data = doc.data();
         const barangay = data.barangay;
@@ -115,19 +126,18 @@ export default function LiveStatsPage() {
         }
       });
 
-      const stats = barangays.map((name, idx) => ({
+      const stats = barangays.map((name) => ({
         name,
         emission: Math.round(emissionsMap[name]),
         level: getEmissionLevel(emissionsMap[name]),
-        color: '#14B89D',
+        color: getBarangayColor(name),
         records: recordsCount[name],
         households: recordsCount[name],
       }));
       stats.sort((a, b) => b.emission - a.emission);
-      const maxEmission = stats.length ? stats[0].emission : 1;
-      stats.forEach(s => { s.color = getGradientColor(s.emission, maxEmission); });
       setBarangaysData(stats);
 
+      // Generate alerts
       const newAlerts: Alert[] = [];
       stats.forEach((b, idx) => {
         if (b.emission >= 700) {
@@ -184,7 +194,6 @@ export default function LiveStatsPage() {
     return () => unsubAuth();
   }, [router]);
 
-  // Real-time listeners from both Firestore instances
   useEffect(() => {
     const unsubWeb = onSnapshot(collection(webCemmsDb, 'emissions'), () => fetchData());
     const unsubMobile = onSnapshot(collection(mobileDb, 'calculations'), () => fetchData());
@@ -192,7 +201,6 @@ export default function LiveStatsPage() {
   }, []);
 
   const handleLogout = () => signOut(auth).then(() => router.push('/login'));
-
   const addTarget = () => {
     if (selectedBarangay && targetValue > 0) {
       const current = barangaysData.find(b => b.name === selectedBarangay)?.emission || 0;
@@ -210,14 +218,12 @@ export default function LiveStatsPage() {
       addToast('success', `Target set for ${selectedBarangay}`);
     }
   };
-
   const removeTarget = (barangay: string) => {
     const newTargets = targets.filter(t => t.barangay !== barangay);
     setTargets(newTargets);
     localStorage.setItem('emissionTargets', JSON.stringify(newTargets));
     addToast('info', `Removed target for ${barangay}`);
   };
-
   const dismissAlert = (id: string) => setAlerts(alerts.filter(a => a.id !== id));
 
   const showBarangayDetails = (barangay: any, index: number) => {
@@ -233,10 +239,20 @@ export default function LiveStatsPage() {
       { name: 'Lighting', amount: Math.round(barangay.emission * 0.05), percentage: 5 }
     ];
     const detail: BarangayDetail = {
-      name: barangay.name, emission: barangay.emission, level: barangay.level, color: barangay.color, rank: index + 1,
-      totalRecords: barangay.records || 0, averagePerRecord: barangay.records ? Math.round(barangay.emission / barangay.records) : 0,
-      householdCount: barangay.households || 0, sources,
-      comparison: { vsAverage: avg ? Math.round((barangay.emission / avg) * 100) : 0, vsHighest: highest ? Math.round((barangay.emission / highest) * 100) : 0, vsLowest: lowest ? Math.round((barangay.emission / lowest) * 100) : 0 }
+      name: barangay.name,
+      emission: barangay.emission,
+      level: barangay.level,
+      color: barangay.color,
+      rank: index + 1,
+      totalRecords: barangay.records || 0,
+      averagePerRecord: barangay.records ? Math.round(barangay.emission / barangay.records) : 0,
+      householdCount: barangay.households || 0,
+      sources,
+      comparison: {
+        vsAverage: avg ? Math.round((barangay.emission / avg) * 100) : 0,
+        vsHighest: highest ? Math.round((barangay.emission / highest) * 100) : 0,
+        vsLowest: lowest ? Math.round((barangay.emission / lowest) * 100) : 0
+      }
     };
     setSelectedBarangayDetail(detail);
     setShowDetailsModal(true);
@@ -283,7 +299,7 @@ export default function LiveStatsPage() {
     scales: {
       y: { beginAtZero: true, title: { display: true, text: 'CO₂ Emission (kg)', color: '#64748B' }, grid: { color: '#E5E7EB' } },
       x: { ticks: { rotation: 45, maxRotation: 45, font: { size: 11 } }, grid: { display: false } }
-    },
+    }
   };
 
   const top5 = barangaysData.filter(b => b.emission > 0).slice(0, 5);
@@ -291,7 +307,11 @@ export default function LiveStatsPage() {
   const donutLabels = [...top5.map(b => b.name)];
   const donutData = [...top5.map(b => b.emission)];
   const donutColors = [...top5.map(b => b.color)];
-  if (otherTotal > 0) { donutLabels.push('Others'); donutData.push(otherTotal); donutColors.push('#94A3B8'); }
+  if (otherTotal > 0) {
+    donutLabels.push('Others');
+    donutData.push(otherTotal);
+    donutColors.push(FALLBACK_COLOR);
+  }
   const donutChartData = { labels: donutLabels, datasets: [{ data: donutData, backgroundColor: donutColors, borderWidth: 0 }] };
   const donutOptions = {
     responsive: true,
@@ -300,7 +320,7 @@ export default function LiveStatsPage() {
     plugins: {
       legend: { position: 'bottom' as const, labels: { font: { size: 12 }, usePointStyle: true, boxWidth: 10 } },
       tooltip: { callbacks: { label: (ctx: any) => `${ctx.label}: ${ctx.raw.toLocaleString()} kg (${Math.round((ctx.raw / totalEmission) * 100)}%)` } }
-    },
+    }
   };
 
   if (loading) {
@@ -333,7 +353,6 @@ export default function LiveStatsPage() {
           ))}
         </div>
 
-        {/* Header Card – Teal Green */}
         <div className="header-card">
           <div>
             <h1>Household Emission Analytics</h1>
@@ -346,7 +365,6 @@ export default function LiveStatsPage() {
           </div>
         </div>
 
-        {/* 4 Stats Cards – Pastel variants */}
         <div className="stats-grid">
           <div className="stat-card pastel-teal">
             <div className="stat-icon"><Leaf size={24} /></div>
@@ -382,7 +400,6 @@ export default function LiveStatsPage() {
           </div>
         </div>
 
-        {/* Tabs – Teal themed */}
         <div className="tab-nav">
           <button className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
             <BarChart3 size={16} /> Overview
@@ -407,7 +424,7 @@ export default function LiveStatsPage() {
                   <Bar data={barChartData} options={barChartOptions} />
                 </div>
                 <div className="chart-note">
-                  <Lightbulb size={14} /> Color gradient: teal (lower emissions) → yellow-green (higher emissions)
+                  <Lightbulb size={14} /> Colors correspond to each barangay (fixed palette).
                 </div>
               </div>
 
@@ -449,33 +466,21 @@ export default function LiveStatsPage() {
                   <div className="insight-group">
                     <div className="insight-row">
                       <Award size={20} color="#F59E0B" />
-                      <div>
-                        <strong>Highest Emission</strong>
-                        <p>{highestBarangay?.name || 'N/A'} – {highestBarangay?.emission?.toLocaleString() || 0} kg</p>
-                      </div>
+                      <div><strong>Highest Emission</strong><p>{highestBarangay?.name || 'N/A'} – {highestBarangay?.emission?.toLocaleString() || 0} kg</p></div>
                     </div>
                     <div className="insight-row">
                       <Leaf size={20} color="#14B89D" />
-                      <div>
-                        <strong>Lowest Emission</strong>
-                        <p>{lowestBarangay?.name || 'N/A'} – {lowestBarangay?.emission?.toLocaleString() || 0} kg</p>
-                      </div>
+                      <div><strong>Lowest Emission</strong><p>{lowestBarangay?.name || 'N/A'} – {lowestBarangay?.emission?.toLocaleString() || 0} kg</p></div>
                     </div>
                   </div>
                   <div className="insight-group">
                     <div className="insight-row">
                       <BarChart3 size={20} />
-                      <div>
-                        <strong>Top 5 Contribution</strong>
-                        <p>{top5Total.toLocaleString()} kg ({top5Percent}% of total)</p>
-                      </div>
+                      <div><strong>Top 5 Contribution</strong><p>{top5Total.toLocaleString()} kg ({top5Percent}% of total)</p></div>
                     </div>
                     <div className="insight-row">
                       <AlertTriangle size={20} color="#DC2626" />
-                      <div>
-                        <strong>Critical Areas</strong>
-                        <p>{criticalCount} barangays need immediate attention</p>
-                      </div>
+                      <div><strong>Critical Areas</strong><p>{criticalCount} barangays need immediate attention</p></div>
                     </div>
                   </div>
                 </div>
@@ -489,11 +494,9 @@ export default function LiveStatsPage() {
                   const csv = [['Barangay', 'CO₂ (kg)', 'Status'], ...barangaysData.map(b => [b.name, b.emission, b.level])].map(row => row.join(',')).join('\n');
                   const blob = new Blob([csv], { type: 'text/csv' });
                   const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
+                  const a = document.createElement('a'); a.href = url;
                   a.download = `emissions-${new Date().toISOString().split('T')[0]}.csv`;
-                  a.click();
-                  URL.revokeObjectURL(url);
+                  a.click(); URL.revokeObjectURL(url);
                   addToast('success', 'Exported to CSV');
                 }}><Download size={14} /> Export</button>
               </div>
@@ -528,20 +531,12 @@ export default function LiveStatsPage() {
                 <button className="add-target-btn" onClick={() => setShowTargetModal(true)}><Plus size={14} /> Add Target</button>
               </div>
               {targets.length === 0 ? (
-                <div className="empty-state">
-                  <Award size={48} color="#94A3B8" />
-                  <h4>No targets set yet</h4>
-                  <p>Set household emission reduction targets for barangays to track progress</p>
-                  <button className="primary-btn" onClick={() => setShowTargetModal(true)}>Set Your First Target</button>
-                </div>
+                <div className="empty-state"><Award size={48} color="#94A3B8" /><h4>No targets set yet</h4><p>Set household emission reduction targets for barangays to track progress</p><button className="primary-btn" onClick={() => setShowTargetModal(true)}>Set Your First Target</button></div>
               ) : (
                 <div className="targets-list">
                   {targets.map((target) => (
                     <div key={target.barangay} className="target-item">
-                      <div className="target-header">
-                        <div><h4>{target.barangay}</h4><span className="target-subtitle">Target: {target.targetEmission.toLocaleString()} kg</span></div>
-                        <button className="remove-target" onClick={() => removeTarget(target.barangay)}><Trash2 size={14} /></button>
-                      </div>
+                      <div className="target-header"><div><h4>{target.barangay}</h4><span className="target-subtitle">Target: {target.targetEmission.toLocaleString()} kg</span></div><button className="remove-target" onClick={() => removeTarget(target.barangay)}><Trash2 size={14} /></button></div>
                       <div className="progress-bar-container"><div className="progress-bar" style={{ width: `${target.progress}%`, background: target.progress > 100 ? '#DC2626' : '#14B89D' }}></div></div>
                       <div className="target-stats"><span>Current: {target.currentEmission.toLocaleString()} kg</span><span className={target.progress > 100 ? 'over-target' : 'under-target'}>{target.progress > 100 ? `${target.progress - 100}% over target` : `${100 - target.progress}% to target`}</span></div>
                     </div>
@@ -601,23 +596,91 @@ export default function LiveStatsPage() {
         )}
       </div>
 
-      {/* Details Modal */}
+      {/* Details Modal – fixed styling */}
       {showDetailsModal && selectedBarangayDetail && (
         <div className="modal-overlay" onClick={() => setShowDetailsModal(false)}>
           <div className="details-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><div className="modal-title"><div className="color-indicator" style={{ background: selectedBarangayDetail.color }}></div><h3>{selectedBarangayDetail.name}</h3></div><button className="close-modal" onClick={() => setShowDetailsModal(false)}>✕</button></div>
-            <div className="modal-body">
-              <div className="detail-rank"><div className="rank-badge" style={{ background: selectedBarangayDetail.color }}>#{selectedBarangayDetail.rank}</div><div className="level-badge-large" style={{ background: selectedBarangayDetail.color }}>{selectedBarangayDetail.level}</div></div>
-              <div className="detail-stats">
-                <div className="detail-stat"><div className="detail-stat-label">Total Household CO₂</div><div className="detail-stat-value" style={{ color: selectedBarangayDetail.color }}>{selectedBarangayDetail.emission.toLocaleString()} <span className="detail-stat-unit">kg</span></div></div>
-                <div className="detail-stat"><div className="detail-stat-label">Total Submissions</div><div className="detail-stat-value">{selectedBarangayDetail.totalRecords} <span className="detail-stat-unit">records</span></div></div>
-                <div className="detail-stat"><div className="detail-stat-label">Households</div><div className="detail-stat-value">{selectedBarangayDetail.householdCount} <span className="detail-stat-unit">households</span></div></div>
+            <div className="modal-header">
+              <div className="modal-title">
+                <div className="color-indicator" style={{ background: selectedBarangayDetail.color, width: 24, height: 24, borderRadius: 12 }}></div>
+                <h3>{selectedBarangayDetail.name}</h3>
               </div>
-              <div className="detail-section"><h4><BarChart3 size={16} /> Average Emission per Household</h4><div className="avg-household"><div className="avg-value" style={{ color: selectedBarangayDetail.color }}>{Math.round(selectedBarangayDetail.emission / Math.max(selectedBarangayDetail.householdCount, 1)).toLocaleString()}<span className="avg-unit">kg per household</span></div><div className="avg-note">Based on {selectedBarangayDetail.totalRecords} total submissions</div></div></div>
-              <div className="detail-section"><h4><TrendingUp size={16} /> Comparison with Other Barangays</h4><div className="comparison-grid"><div className="comparison-item"><span className="comparison-label">vs. Municipal Average</span><div className="comparison-bar-container"><div className="comparison-bar" style={{ width: `${Math.min(selectedBarangayDetail.comparison.vsAverage, 100)}%`, background: selectedBarangayDetail.color }}></div></div><span className="comparison-value">{selectedBarangayDetail.comparison.vsAverage}% of average</span></div><div className="comparison-item"><span className="comparison-label">vs. Highest Barangay</span><div className="comparison-bar-container"><div className="comparison-bar" style={{ width: `${Math.min(selectedBarangayDetail.comparison.vsHighest, 100)}%`, background: selectedBarangayDetail.color }}></div></div><span className="comparison-value">{selectedBarangayDetail.comparison.vsHighest}% of highest</span></div><div className="comparison-item"><span className="comparison-label">vs. Lowest Barangay</span><div className="comparison-bar-container"><div className="comparison-bar" style={{ width: `${Math.min(selectedBarangayDetail.comparison.vsLowest, 100)}%`, background: selectedBarangayDetail.color }}></div></div><span className="comparison-value">{selectedBarangayDetail.comparison.vsLowest}× lowest</span></div></div></div>
-              <div className="detail-section"><h4><PieChart size={16} /> Household Emission Sources Breakdown</h4><div className="sources-list">{selectedBarangayDetail.sources.map((source, idx) => (<div key={idx} className="source-item"><div className="source-header"><span className="source-name">{source.name}</span><span className="source-percentage">{source.percentage}%</span></div><div className="source-bar-container"><div className="source-bar" style={{ width: `${source.percentage}%`, background: selectedBarangayDetail.color }}></div></div><div className="source-amount">{source.amount.toLocaleString()} kg</div></div>))}</div></div>
-              <div className="detail-section"><h4><Lightbulb size={16} /> Household Action Plan for {selectedBarangayDetail.name}</h4><div className="recommendation-list">{selectedBarangayDetail.emission >= 2000 && (<div className="recommendation-item urgent"><AlertTriangle size={18} /><div><strong>URGENT: High Household Emissions</strong><p>Schedule immediate household energy audit and community seminar</p></div></div>)}<div className="recommendation-item"><Lightbulb size={18} /><div><strong>LED Lighting Campaign</strong><p>Distribute LED bulbs and educate about energy-efficient lighting</p></div></div><div className="recommendation-item"><Zap size={18} /><div><strong>Appliance Efficiency Program</strong><p>Promote energy-efficient appliances and proper usage habits</p></div></div><div className="recommendation-item"><Sun size={18} /><div><strong>Solar Energy Initiative</strong><p>Introduce subsidized solar panel installation for households</p></div></div></div></div>
-              <div className="detail-actions"><button className="action-primary" onClick={() => { setShowDetailsModal(false); setShowTargetModal(true); setSelectedBarangay(selectedBarangayDetail.name); }}><Award size={14} /> Set Reduction Target</button><button className="action-secondary" onClick={() => alert(`Generating household emission report for ${selectedBarangayDetail.name}`)}><FileText size={14} /> Generate Report</button><button className="action-secondary" onClick={() => alert(`Sending energy-saving tips to ${selectedBarangayDetail.name}`)}><Send size={14} /> Send Alert</button></div>
+              <button className="close-modal" onClick={() => setShowDetailsModal(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="detail-rank">
+                <div className="rank-badge" style={{ background: selectedBarangayDetail.color }}>#{selectedBarangayDetail.rank}</div>
+                <div className="level-badge-large" style={{ background: selectedBarangayDetail.color }}>{selectedBarangayDetail.level}</div>
+              </div>
+              <div className="detail-stats">
+                <div className="detail-stat">
+                  <div className="detail-stat-label">Total Household CO₂</div>
+                  <div className="detail-stat-value" style={{ color: selectedBarangayDetail.color }}>{selectedBarangayDetail.emission.toLocaleString()} <span className="detail-stat-unit">kg</span></div>
+                </div>
+                <div className="detail-stat">
+                  <div className="detail-stat-label">Total Submissions</div>
+                  <div className="detail-stat-value">{selectedBarangayDetail.totalRecords} <span className="detail-stat-unit">records</span></div>
+                </div>
+                <div className="detail-stat">
+                  <div className="detail-stat-label">Households</div>
+                  <div className="detail-stat-value">{selectedBarangayDetail.householdCount} <span className="detail-stat-unit">households</span></div>
+                </div>
+              </div>
+              <div className="detail-section">
+                <h4><BarChart3 size={16} /> Average Emission per Household</h4>
+                <div className="avg-household">
+                  <div className="avg-value" style={{ color: selectedBarangayDetail.color }}>{Math.round(selectedBarangayDetail.emission / Math.max(selectedBarangayDetail.householdCount, 1)).toLocaleString()}<span className="avg-unit">kg per household</span></div>
+                  <div className="avg-note">Based on {selectedBarangayDetail.totalRecords} total submissions</div>
+                </div>
+              </div>
+              <div className="detail-section">
+                <h4><TrendingUp size={16} /> Comparison with Other Barangays</h4>
+                <div className="comparison-grid">
+                  <div className="comparison-item">
+                    <span className="comparison-label">vs. Municipal Average</span>
+                    <div className="comparison-bar-container"><div className="comparison-bar" style={{ width: `${Math.min(selectedBarangayDetail.comparison.vsAverage, 100)}%`, background: selectedBarangayDetail.color }}></div></div>
+                    <span className="comparison-value">{selectedBarangayDetail.comparison.vsAverage}% of average</span>
+                  </div>
+                  <div className="comparison-item">
+                    <span className="comparison-label">vs. Highest Barangay</span>
+                    <div className="comparison-bar-container"><div className="comparison-bar" style={{ width: `${Math.min(selectedBarangayDetail.comparison.vsHighest, 100)}%`, background: selectedBarangayDetail.color }}></div></div>
+                    <span className="comparison-value">{selectedBarangayDetail.comparison.vsHighest}% of highest</span>
+                  </div>
+                  <div className="comparison-item">
+                    <span className="comparison-label">vs. Lowest Barangay</span>
+                    <div className="comparison-bar-container"><div className="comparison-bar" style={{ width: `${Math.min(selectedBarangayDetail.comparison.vsLowest, 100)}%`, background: selectedBarangayDetail.color }}></div></div>
+                    <span className="comparison-value">{selectedBarangayDetail.comparison.vsLowest}× lowest</span>
+                  </div>
+                </div>
+              </div>
+              <div className="detail-section">
+                <h4><PieChart size={16} /> Household Emission Sources Breakdown</h4>
+                <div className="sources-list">
+                  {selectedBarangayDetail.sources.map((source, idx) => (
+                    <div key={idx} className="source-item">
+                      <div className="source-header"><span className="source-name">{source.name}</span><span className="source-percentage">{source.percentage}%</span></div>
+                      <div className="source-bar-container"><div className="source-bar" style={{ width: `${source.percentage}%`, background: selectedBarangayDetail.color }}></div></div>
+                      <div className="source-amount">{source.amount.toLocaleString()} kg</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="detail-section">
+                <h4><Lightbulb size={16} /> Household Action Plan for {selectedBarangayDetail.name}</h4>
+                <div className="recommendation-list">
+                  {selectedBarangayDetail.emission >= 2000 && (
+                    <div className="recommendation-item urgent"><AlertTriangle size={18} /><div><strong>URGENT: High Household Emissions</strong><p>Schedule immediate household energy audit and community seminar</p></div></div>
+                  )}
+                  <div className="recommendation-item"><Lightbulb size={18} /><div><strong>LED Lighting Campaign</strong><p>Distribute LED bulbs and educate about energy-efficient lighting</p></div></div>
+                  <div className="recommendation-item"><Zap size={18} /><div><strong>Appliance Efficiency Program</strong><p>Promote energy-efficient appliances and proper usage habits</p></div></div>
+                  <div className="recommendation-item"><Sun size={18} /><div><strong>Solar Energy Initiative</strong><p>Introduce subsidized solar panel installation for households</p></div></div>
+                </div>
+              </div>
+              <div className="detail-actions">
+                <button className="action-primary" onClick={() => { setShowDetailsModal(false); setShowTargetModal(true); setSelectedBarangay(selectedBarangayDetail.name); }}><Award size={14} /> Set Reduction Target</button>
+                <button className="action-secondary" onClick={() => alert(`Generating household emission report for ${selectedBarangayDetail.name}`)}><FileText size={14} /> Generate Report</button>
+                <button className="action-secondary" onClick={() => alert(`Sending energy-saving tips to ${selectedBarangayDetail.name}`)}><Send size={14} /> Send Alert</button>
+              </div>
             </div>
           </div>
         </div>
@@ -628,7 +691,13 @@ export default function LiveStatsPage() {
         <div className="modal-overlay" onClick={() => setShowTargetModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header"><h3>Set Household Emission Target</h3><button className="close-modal" onClick={() => setShowTargetModal(false)}>✕</button></div>
-            <div className="modal-body"><label>Select Barangay</label><select value={selectedBarangay} onChange={(e) => setSelectedBarangay(e.target.value)}><option value="">Choose barangay...</option>{barangaysData.map(b => (<option key={b.name} value={b.name}>{b.name}</option>))}</select><label>Target Household Emission (kg CO₂)</label><input type="number" value={targetValue} onChange={(e) => setTargetValue(Number(e.target.value))} placeholder="Enter target value" /><div className="modal-note"><Lightbulb size={14} /> Recommended target: Reduce household emissions by 15% from current levels</div></div>
+            <div className="modal-body">
+              <label>Select Barangay</label>
+              <select value={selectedBarangay} onChange={(e) => setSelectedBarangay(e.target.value)}><option value="">Choose barangay...</option>{barangaysData.map(b => (<option key={b.name} value={b.name}>{b.name}</option>))}</select>
+              <label>Target Household Emission (kg CO₂)</label>
+              <input type="number" value={targetValue} onChange={(e) => setTargetValue(Number(e.target.value))} placeholder="Enter target value" />
+              <div className="modal-note"><Lightbulb size={14} /> Recommended target: Reduce household emissions by 15% from current levels</div>
+            </div>
             <div className="modal-footer"><button className="cancel-btn" onClick={() => setShowTargetModal(false)}>Cancel</button><button className="save-btn" onClick={addTarget}>Save Target</button></div>
           </div>
         </div>
@@ -646,7 +715,6 @@ export default function LiveStatsPage() {
           min-height: 100vh;
         }
         
-        /* Toast */
         .toast-container {
           position: fixed;
           bottom: 24px;
@@ -671,7 +739,6 @@ export default function LiveStatsPage() {
         .toast.error { border-left-color: #DC2626; }
         .toast button { background: none; border: none; cursor: pointer; margin-left: auto; }
         
-        /* Header */
         .header-card {
           background: #14B89D;
           border-radius: 28px;
@@ -710,7 +777,6 @@ export default function LiveStatsPage() {
           border: 1px solid #9FE5D5;
         }
         
-        /* Stats Cards */
         .stats-grid {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
@@ -751,20 +817,16 @@ export default function LiveStatsPage() {
         .stat-card.pastel-teal { background: #D6F4EE; border: 1px solid #9FE5D5; }
         .stat-card.pastel-teal .stat-value { color: #0F5C4B; }
         .stat-card.pastel-teal .stat-label { color: #3B7A6A; }
-        
         .stat-card.pastel-mint { background: #DCFCE7; border: 1px solid #BBF7D0; }
         .stat-card.pastel-mint .stat-value { color: #166534; }
         .stat-card.pastel-mint .stat-label { color: #4B5563; }
-        
         .stat-card.pastel-coral { background: #FFEDD5; border: 1px solid #FED7AA; }
         .stat-card.pastel-coral .stat-value { color: #9A3412; }
         .stat-card.pastel-coral .stat-label { color: #C2410C; }
-        
         .stat-card.pastel-yellowgreen { background: #E9F5DB; border: 1px solid #D4E8B3; }
         .stat-card.pastel-yellowgreen .stat-value { color: #3D5C1A; }
         .stat-card.pastel-yellowgreen .stat-label { color: #5A7C2E; }
         
-        /* Tabs */
         .tab-nav {
           display: flex;
           gap: 12px;
@@ -791,7 +853,6 @@ export default function LiveStatsPage() {
         .tab-btn.active { background: #14B89D; color: white; }
         .alert-badge { background: #DC2626; color: white; border-radius: 30px; padding: 0 8px; font-size: 11px; margin-left: 8px; }
         
-        /* Overview Grid */
         .overview-grid {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
@@ -805,10 +866,6 @@ export default function LiveStatsPage() {
           border: 1px solid #C8E6C9;
           box-shadow: 0 2px 8px rgba(0,0,0,0.04);
           transition: all 0.2s;
-        }
-        .chart-card:hover, .donut-card:hover, .distribution-card:hover, .combined-insights-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 12px 24px rgba(0,0,0,0.08);
         }
         .card-header {
           display: flex;
@@ -858,7 +915,6 @@ export default function LiveStatsPage() {
         .insight-row strong { display: block; color: #166534; margin-bottom: 6px; font-size: 14px; }
         .insight-row p { margin: 0; font-size: 14px; color: #4B5563; }
         
-        /* Data Table */
         .data-table {
           background: white;
           border-radius: 28px;
@@ -899,7 +955,6 @@ export default function LiveStatsPage() {
         .view-btn { background: #14B89D; border: none; padding: 6px 16px; border-radius: 40px; color: white; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s; }
         .view-btn:hover { background: #0F5C4B; transform: translateY(-1px); }
         
-        /* Targets & Alerts Cards */
         .targets-card, .recommendations-card, .alerts-card, .actions-card {
           background: white;
           border-radius: 28px;
@@ -929,31 +984,59 @@ export default function LiveStatsPage() {
         .empty-state h4 { margin: 16px 0 8px; color: #4B5563; }
         .primary-btn { background: #14B89D; color: white; border: none; padding: 10px 24px; border-radius: 44px; cursor: pointer; font-size: 14px; font-weight: 500; margin-top: 16px; }
         
-        /* Modals */
+        /* Modal Styles */
         .modal-overlay {
           position: fixed; top: 0; left: 0; right: 0; bottom: 0;
           background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
           display: flex; align-items: center; justify-content: center; z-index: 1000;
         }
-        .details-modal, .modal {
+        .details-modal {
           background: white; border-radius: 32px; width: 720px; max-width: 90%;
           max-height: 85vh; overflow-y: auto;
+          box-shadow: 0 20px 35px rgba(0,0,0,0.2);
         }
-        .modal { width: 480px; }
-        .modal-header { padding: 20px 28px; border-bottom: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: center; }
+        .modal { width: 480px; background: white; border-radius: 32px; max-width: 90%; }
+        .modal-header {
+          padding: 20px 28px; border-bottom: 1px solid #E5E7EB;
+          display: flex; justify-content: space-between; align-items: center;
+        }
         .modal-title { display: flex; align-items: center; gap: 12px; }
         .modal-title h3 { margin: 0; color: #0F5C4B; font-size: 20px; }
         .close-modal { background: none; border: none; font-size: 28px; cursor: pointer; color: #64748B; }
-        .modal-body { padding: 24px 28px; display: flex; flex-direction: column; gap: 16px; }
-        .modal-body label { font-size: 14px; font-weight: 600; color: #0F5C4B; }
-        .modal-body select, .modal-body input { width: 100%; padding: 12px 16px; border: 1px solid #C8E6C9; border-radius: 20px; background: #F9FAFB; font-size: 14px; }
-        .modal-note { display: flex; align-items: center; gap: 10px; padding: 14px; background: #E9F5DB; border-radius: 20px; color: #3D5C1A; font-size: 13px; }
-        .modal-footer { padding: 20px 28px; display: flex; justify-content: flex-end; gap: 14px; border-top: 1px solid #E5E7EB; }
-        .cancel-btn, .save-btn { border: none; border-radius: 44px; padding: 10px 24px; font-weight: 600; cursor: pointer; }
-        .cancel-btn { background: #F1F5F9; color: #334155; }
-        .save-btn { background: #14B89D; color: white; }
-        .cancel-btn:hover { background: #E2E8F0; }
-        .save-btn:hover { background: #0F5C4B; }
+        .modal-body { padding: 24px 28px; display: flex; flex-direction: column; gap: 20px; }
+        .detail-rank { display: flex; gap: 16px; align-items: center; margin-bottom: 8px; }
+        .rank-badge { width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 22px; }
+        .level-badge-large { padding: 8px 20px; border-radius: 40px; color: white; font-weight: 700; font-size: 14px; }
+        .detail-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; margin-bottom: 8px; }
+        .detail-stat { text-align: center; }
+        .detail-stat-label { font-size: 13px; color: #64748B; margin-bottom: 6px; }
+        .detail-stat-value { font-size: 28px; font-weight: 800; margin-bottom: 4px; }
+        .detail-stat-unit { font-size: 12px; font-weight: normal; }
+        .detail-section { margin-top: 8px; }
+        .detail-section h4 { display: flex; align-items: center; gap: 8px; color: #166534; margin-bottom: 16px; font-size: 16px; }
+        .avg-household { background: #F0FDF4; padding: 16px; border-radius: 20px; text-align: center; }
+        .avg-value { font-size: 36px; font-weight: 800; }
+        .comparison-grid { display: flex; flex-direction: column; gap: 12px; }
+        .comparison-item { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .comparison-label { width: 140px; font-size: 13px; color: #4B5563; }
+        .comparison-bar-container { flex: 1; height: 6px; background: #E5E7EB; border-radius: 6px; }
+        .comparison-bar { height: 100%; border-radius: 6px; }
+        .sources-list { display: flex; flex-direction: column; gap: 12px; }
+        .source-item { background: #F9FAFB; padding: 12px; border-radius: 16px; }
+        .source-header { display: flex; justify-content: space-between; margin-bottom: 6px; }
+        .source-bar-container { height: 6px; background: #E5E7EB; border-radius: 6px; margin-bottom: 6px; }
+        .source-bar { height: 100%; border-radius: 6px; }
+        .recommendation-item { display: flex; gap: 12px; padding: 12px; background: #F9FAFB; border-radius: 16px; margin-bottom: 8px; }
+        .detail-actions { display: flex; gap: 12px; margin-top: 16px; }
+        .action-primary, .action-secondary {
+          flex: 1; padding: 12px; border-radius: 44px; text-align: center;
+          display: flex; align-items: center; justify-content: center; gap: 8px;
+          font-size: 13px; font-weight: 500; cursor: pointer; border: none;
+        }
+        .action-primary { background: #14B89D; color: white; }
+        .action-primary:hover { background: #0F5C4B; }
+        .action-secondary { background: #F1F5F9; color: #334155; }
+        .action-secondary:hover { background: #E2E8F0; }
         
         @media (max-width: 1024px) {
           .main-content { margin-left: 0; padding: 20px; }

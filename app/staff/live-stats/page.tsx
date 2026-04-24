@@ -30,6 +30,29 @@ const barangays = [
   'Santa Rosa I', 'Santa Rosa II', 'Saog', 'Tabing Ilog'
 ];
 
+// Fixed colors for each barangay (same as admin)
+const BARANGAY_COLORS: Record<string, string> = {
+  'Abangan Norte': '#27d8b1',
+  'Abangan Sur': '#2dd28e',
+  'Ibayo': '#21de6c',
+  'Lambakin': '#23dc4e',
+  'Lias': '#46c837',
+  'Loma de Gato': '#5fd926',
+  'Nagbalon': '#75c03f',
+  'Patubig': '#97c03f',
+  'Poblacion I': '#b7cd32',
+  'Poblacion II': '#cadf20',
+  'Prenza I': '#04fbe5',
+  'Prenza II': '#1be4a6',
+  'Santa Rosa I': '#31cebc',
+  'Santa Rosa II': '#2ec0d1',
+  'Saog': '#08caf7',
+  'Tabing Ilog': '#cfc030'
+};
+const FALLBACK_COLOR = '#94A3B8';
+
+const getBarangayColor = (name: string) => BARANGAY_COLORS[name] || FALLBACK_COLOR;
+
 // Normalize barangay name (consistent with other pages)
 const normalizeBarangayName = (name: string): string => {
   const mapping: Record<string, string> = {
@@ -55,12 +78,12 @@ const getEmissionLevel = (emission: number): string => {
   return 'Very Low';
 };
 
-// Gradient color: teal (low) → yellow-green (high)
+// Gradient color for bar chart (teal → yellow-green)
 const getGradientColor = (value: number, max: number): string => {
   if (max === 0) return '#14B89D';
   const ratio = value / max;
-  const start = { r: 20, g: 184, b: 157 }; // #14B89D
-  const end = { r: 212, g: 232, b: 179 };   // #D4E8B3
+  const start = { r: 20, g: 184, b: 157 };
+  const end = { r: 212, g: 232, b: 179 };
   const r = Math.round(start.r + (end.r - start.r) * ratio);
   const g = Math.round(start.g + (end.g - start.g) * ratio);
   const b = Math.round(start.b + (end.b - start.b) * ratio);
@@ -96,14 +119,14 @@ export default function StaffLiveStats() {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   };
 
-  // Fetch emission data from all sources (same as admin)
+  // Fetch emission data from all sources (calculations, bills, emissions)
   const fetchData = async () => {
     try {
       const emissionsMap: Record<string, number> = {};
       const recordsCount: Record<string, number> = {};
       barangays.forEach(b => { emissionsMap[b] = 0; recordsCount[b] = 0; });
 
-      // 1. Calculator submissions
+      // 1. Calculator submissions (mobile)
       const calcSnap = await getDocs(collection(mobileDb, 'calculations'));
       calcSnap.forEach(doc => {
         const data = doc.data();
@@ -115,7 +138,7 @@ export default function StaffLiveStats() {
         }
       });
 
-      // 2. Bill scan submissions
+      // 2. Bill scan submissions (mobile)
       const billsSnap = await getDocs(collection(mobileDb, 'bills'));
       billsSnap.forEach(doc => {
         const data = doc.data();
@@ -140,17 +163,18 @@ export default function StaffLiveStats() {
       });
 
       const stats = barangays.map(name => ({
-        name,
-        emission: Math.round(emissionsMap[name]),
-        level: getEmissionLevel(emissionsMap[name]),
-        color: '#14B89D', // placeholder
-        records: recordsCount[name],
-        households: recordsCount[name] // treat each submission as one household for simplicity
-      }));
-      stats.sort((a, b) => b.emission - a.emission);
-      const maxEmission = stats.length ? stats[0].emission : 1;
-      stats.forEach(s => { s.color = getGradientColor(s.emission, maxEmission); });
-      setBarangaysData(stats);
+  name,
+  emission: Math.round(emissionsMap[name]),
+  level: getEmissionLevel(emissionsMap[name]),
+  color: getBarangayColor(name),
+  barColor: '',           // placeholder for gradient bar color
+  records: recordsCount[name],
+  households: recordsCount[name]
+}));
+stats.sort((a, b) => b.emission - a.emission);
+const maxEmission = stats.length ? stats[0].emission : 1;
+stats.forEach(s => { s.barColor = getGradientColor(s.emission, maxEmission); });
+setBarangaysData(stats);
 
       // Generate alerts for high emissions
       const newAlerts: Alert[] = [];
@@ -199,12 +223,12 @@ export default function StaffLiveStats() {
     };
   }, []);
 
+  // Authentication
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (u) => {
       if (u) {
         setUser(u);
       } else {
-        // Fallback: check localStorage for mock user
         if (typeof window !== 'undefined') {
           const stored = localStorage.getItem('cemms_user');
           if (stored) {
@@ -254,8 +278,9 @@ export default function StaffLiveStats() {
   const criticalCount = barangaysData.filter(b => b.emission >= 2000).length;
   const veryHighCount = barangaysData.filter(b => b.emission >= 1000 && b.emission < 2000).length;
   const highCount = barangaysData.filter(b => b.emission >= 700 && b.emission < 1000).length;
-  const lowCount = barangaysData.filter(b => b.emission > 0 && b.emission < 300).length;
-  const veryLowCount = barangaysData.filter(b => b.emission >= 300 && b.emission < 700).length;
+  const mediumCount = barangaysData.filter(b => b.emission >= 500 && b.emission < 700).length;
+  const lowCount = barangaysData.filter(b => b.emission >= 300 && b.emission < 500).length;
+  const veryLowCount = barangaysData.filter(b => b.emission > 0 && b.emission < 300).length;
   const noDataCount = barangaysData.filter(b => b.emission === 0).length;
   const highEmissionAreas = criticalCount + veryHighCount + highCount;
 
@@ -264,19 +289,19 @@ export default function StaffLiveStats() {
     { label: 'Critical', count: criticalCount, color: '#EF4444' },
     { label: 'Very High', count: veryHighCount, color: '#F97316' },
     { label: 'High', count: highCount, color: '#F59E0B' },
-    { label: 'Medium', count: barangaysData.filter(b => b.emission >= 500 && b.emission < 700).length, color: '#EAB308' },
-    { label: 'Low', count: barangaysData.filter(b => b.emission >= 300 && b.emission < 500).length, color: '#84CC16' },
+    { label: 'Medium', count: mediumCount, color: '#EAB308' },
+    { label: 'Low', count: lowCount, color: '#84CC16' },
     { label: 'Very Low', count: veryLowCount, color: '#D4E8B3' },
     { label: 'No Data', count: noDataCount, color: '#94A3B8' }
   ].filter(level => level.count > 0 || level.label === 'No Data');
 
-  // Bar chart data
+  // Bar chart data (using gradient colors for bars)
   const barChartData = {
     labels: barangaysData.map(b => b.name),
     datasets: [{
       label: 'CO₂ Emission (kg)',
       data: barangaysData.map(b => b.emission),
-      backgroundColor: barangaysData.map(b => b.color),
+      backgroundColor: barangaysData.map(b => b.barColor || '#14B89D'),
       borderRadius: 10,
       barPercentage: 0.7,
       categoryPercentage: 0.8,
@@ -295,13 +320,17 @@ export default function StaffLiveStats() {
     },
   };
 
-  // Donut chart for top 5
+  // Donut chart for top 5 (using fixed colors per barangay)
   const top5 = barangaysData.filter(b => b.emission > 0).slice(0, 5);
   const otherTotal = barangaysData.filter(b => b.emission > 0).slice(5).reduce((s, b) => s + b.emission, 0);
   const donutLabels = [...top5.map(b => b.name)];
   const donutData = [...top5.map(b => b.emission)];
-  const donutColors = [...top5.map(b => b.color)];
-  if (otherTotal > 0) { donutLabels.push('Others'); donutData.push(otherTotal); donutColors.push('#94A3B8'); }
+  const donutColors = [...top5.map(b => b.color)]; // fixed colors
+  if (otherTotal > 0) {
+    donutLabels.push('Others');
+    donutData.push(otherTotal);
+    donutColors.push(FALLBACK_COLOR);
+  }
   const donutChartData = { labels: donutLabels, datasets: [{ data: donutData, backgroundColor: donutColors, borderWidth: 0 }] };
   const donutOptions = {
     responsive: true,
@@ -357,7 +386,7 @@ export default function StaffLiveStats() {
           </div>
         </div>
 
-        {/* 4 Stats Cards – Pastel variants */}
+        {/* 4 Stats Cards */}
         <div className="stats-grid">
           <div className="stat-card pastel-teal">
             <div className="stat-icon"><Leaf size={24} /></div>
@@ -393,7 +422,7 @@ export default function StaffLiveStats() {
           </div>
         </div>
 
-        {/* Tabs – Teal themed */}
+        {/* Tabs */}
         <div className="tab-nav">
           <button className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
             <BarChart3 size={16} /> Overview
@@ -409,7 +438,7 @@ export default function StaffLiveStats() {
         {activeTab === 'overview' && (
           <>
             <div className="overview-grid">
-              {/* Bar Chart with teal→yellow-green gradient */}
+              {/* Bar Chart */}
               <div className="chart-card">
                 <div className="card-header">
                   <h3><BarChart3 size={20} /> Barangay Household CO₂ Comparison</h3>
@@ -423,7 +452,7 @@ export default function StaffLiveStats() {
                 </div>
               </div>
 
-              {/* Top 5 Donut */}
+              {/* Top 5 Donut with fixed colors */}
               <div className="donut-card">
                 <div className="card-header">
                   <h3><PieChart size={18} /> Top 5 Highest Emissions</h3>
@@ -751,15 +780,12 @@ export default function StaffLiveStats() {
         .stat-card.pastel-teal { background: #D6F4EE; border: 1px solid #9FE5D5; }
         .stat-card.pastel-teal .stat-value { color: #0F5C4B; }
         .stat-card.pastel-teal .stat-label { color: #3B7A6A; }
-        
         .stat-card.pastel-mint { background: #DCFCE7; border: 1px solid #BBF7D0; }
         .stat-card.pastel-mint .stat-value { color: #166534; }
         .stat-card.pastel-mint .stat-label { color: #4B5563; }
-        
         .stat-card.pastel-coral { background: #FFEDD5; border: 1px solid #FED7AA; }
         .stat-card.pastel-coral .stat-value { color: #9A3412; }
         .stat-card.pastel-coral .stat-label { color: #C2410C; }
-        
         .stat-card.pastel-yellowgreen { background: #E9F5DB; border: 1px solid #D4E8B3; }
         .stat-card.pastel-yellowgreen .stat-value { color: #3D5C1A; }
         .stat-card.pastel-yellowgreen .stat-label { color: #5A7C2E; }

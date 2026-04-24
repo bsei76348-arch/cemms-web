@@ -4,12 +4,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth, mobileDb, webCemmsDb } from '@/app/lib/combinedFirebase';
-import { collection, getDocs, addDoc, updateDoc, doc, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, onSnapshot } from 'firebase/firestore';
 import {
   FileText, Leaf, BarChart3, Ruler, Award, Calendar,
   Download, Printer, RefreshCw, Filter, X, Flag, Eye, Check, Clock,
   TrendingUp, Monitor, Smartphone, ChevronUp, ChevronDown,
-  MapPin, AlertTriangle, CheckCircle, Info
+  MapPin, AlertTriangle, CheckCircle, Info, Trash2
 } from 'lucide-react';
 import StaffSidebar from '@/app/lib/StaffSidebar';
 
@@ -296,11 +296,11 @@ export default function StaffReports() {
 
   const printReport = () => window.print();
 
-  // Flag management
-  const fetchFlags = useCallback(async () => {
-    try {
-      const q = query(collection(webCemmsDb, 'flags'), orderBy('createdAt', 'desc'));
-      const snapshot = await getDocs(q);
+  // --- FLAGS: Real-time listener & CRUD ---
+  // Real‑time listener for flags collection
+  useEffect(() => {
+    const q = query(collection(webCemmsDb, 'flags'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       const flagsData: Flag[] = snapshot.docs.map(doc => {
         const data = doc.data();
         return {
@@ -315,10 +315,11 @@ export default function StaffReports() {
         };
       });
       setFlags(flagsData);
-    } catch (error) {
-      console.error(error);
+    }, (error) => {
+      console.error('Flags listener error:', error);
       addToast('error', 'Failed to load flags');
-    }
+    });
+    return () => unsubscribe();
   }, []);
 
   const handleFlagBarangay = async (barangay: string, emission: number) => {
@@ -331,7 +332,7 @@ export default function StaffReports() {
 
     setFlaggingBarangay(barangay);
     try {
-      const newFlag: Omit<Flag, 'id'> = {
+      await addDoc(collection(webCemmsDb, 'flags'), {
         barangay,
         emissionLevel: emission,
         flaggedBy: user?.uid || 'staff-unknown',
@@ -339,9 +340,7 @@ export default function StaffReports() {
         createdAt: new Date(),
         status: 'pending',
         reason,
-      };
-      const docRef = await addDoc(collection(webCemmsDb, 'flags'), newFlag);
-      setFlags(prev => [{ id: docRef.id, ...newFlag }, ...prev]);
+      });
       addToast('success', `${barangay} flagged successfully!`);
     } catch (error: any) {
       console.error(error);
@@ -355,14 +354,23 @@ export default function StaffReports() {
     if (!confirm(`Mark as ${newStatus}?`)) return;
     try {
       await updateDoc(doc(webCemmsDb, 'flags', flagId), { status: newStatus });
-      setFlags(prev => prev.map(f => f.id === flagId ? { ...f, status: newStatus } : f));
       addToast('success', `Flag ${newStatus}`);
     } catch (error) {
       addToast('error', 'Update failed');
     }
   };
 
-  // Real-time listeners for live sync
+  const handleDeleteFlag = async (flagId: string) => {
+    if (!confirm('Delete this flag permanently?')) return;
+    try {
+      await deleteDoc(doc(webCemmsDb, 'flags', flagId));
+      addToast('success', 'Flag deleted');
+    } catch (error) {
+      addToast('error', 'Delete failed');
+    }
+  };
+
+  // Real-time emission listeners
   useEffect(() => {
     const unsubCalc = onSnapshot(collection(mobileDb, 'calculations'), () => fetchAllData());
     const unsubBills = onSnapshot(collection(mobileDb, 'bills'), () => fetchAllData());
@@ -370,28 +378,28 @@ export default function StaffReports() {
     return () => { unsubCalc(); unsubBills(); unsubEmissions(); };
   }, [fetchAllData]);
 
-  // Authentication with mock fallback
+  // Authentication with mock fallback (staff only)
   useEffect(() => {
     const checkAuth = async () => {
       const firebaseUser = auth.currentUser;
       if (firebaseUser) {
         setUser(firebaseUser);
-        await Promise.all([fetchAllData(), fetchFlags()]);
+        await fetchAllData();
         setLoading(false);
         return;
       }
-      
       if (typeof window !== 'undefined') {
         const stored = localStorage.getItem('cemms_user');
         if (stored) {
           try {
             const mock = JSON.parse(stored);
+            // Only allow staff role; admin should go to admin reports
             if (mock.role === 'admin') {
               router.push('/admin/reports');
               return;
             }
             setUser({ uid: mock.uid, email: mock.email, displayName: mock.role });
-            await Promise.all([fetchAllData(), fetchFlags()]);
+            await fetchAllData();
             setLoading(false);
             return;
           } catch (e) {
@@ -399,23 +407,19 @@ export default function StaffReports() {
           }
         }
       }
-      
       router.push('/login');
       setLoading(false);
     };
-    
     checkAuth();
-    
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
-        await Promise.all([fetchAllData(), fetchFlags()]);
+        await fetchAllData();
         setLoading(false);
       }
     });
-    
     return () => unsubscribe();
-  }, [router, fetchAllData, fetchFlags]);
+  }, [router, fetchAllData]);
 
   if (loading) {
     return (
@@ -685,16 +689,19 @@ export default function StaffReports() {
                             </span>
                           </td>
                           <td>
-                            {flag.status === 'pending' ? (
-                              <div className="action-buttons">
-                                <button className="btn-review" onClick={() => handleUpdateFlagStatus(flag.id, 'reviewed')}>Review</button>
+                            <div className="action-buttons">
+                              {flag.status === 'pending' && (
+                                <>
+                                  <button className="btn-review" onClick={() => handleUpdateFlagStatus(flag.id, 'reviewed')}>Review</button>
+                                  <button className="btn-resolve" onClick={() => handleUpdateFlagStatus(flag.id, 'resolved')}>Resolve</button>
+                                </>
+                              )}
+                              {flag.status === 'reviewed' && (
                                 <button className="btn-resolve" onClick={() => handleUpdateFlagStatus(flag.id, 'resolved')}>Resolve</button>
-                              </div>
-                            ) : flag.status === 'reviewed' ? (
-                              <button className="btn-resolve" onClick={() => handleUpdateFlagStatus(flag.id, 'resolved')}>Resolve</button>
-                            ) : (
-                              <span className="resolved-text">✓ Resolved</span>
-                            )}
+                              )}
+                              {flag.status === 'resolved' && <span className="resolved-text">✓ Resolved</span>}
+                              <button className="btn-delete" onClick={() => handleDeleteFlag(flag.id)} title="Delete flag"><Trash2 size={14} /></button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1210,18 +1217,27 @@ export default function StaffReports() {
         .status-badge.reviewed { background: #3B82F6; }
         .status-badge.resolved { background: #14B89D; }
         .emission-high { color: #DC2626; font-weight: 700; }
-        .action-buttons { display: flex; gap: 8px; }
-        .btn-review, .btn-resolve {
-          padding: 4px 14px;
+        .action-buttons {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        .btn-review, .btn-resolve, .btn-delete {
+          padding: 4px 12px;
           border-radius: 40px;
           font-size: 12px;
           font-weight: 600;
           border: none;
           cursor: pointer;
           color: white;
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
         }
         .btn-review { background: #3B82F6; }
         .btn-resolve { background: #14B89D; }
+        .btn-delete { background: #DC2626; }
         .resolved-text { color: #14B89D; font-weight: 600; display: flex; align-items: center; gap: 4px; }
         .empty-state {
           text-align: center;
