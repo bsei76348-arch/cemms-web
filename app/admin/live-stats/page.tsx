@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth, webCemmsDb } from '@/app/lib/combinedFirebase'; // Use only one Firestore instance
+import { auth, mobileDb, webCemmsDb } from '@/app/lib/combinedFirebase';
 import { signOut } from 'firebase/auth';
 import { collection, getDocs, onSnapshot } from 'firebase/firestore';
 import AdminSidebar from '../../lib/AdminSidebar';
@@ -104,7 +104,7 @@ export default function LiveStatsPage() {
         }
       });
 
-      const mobileSnap = await getDocs(collection(webCemmsDb, 'calculations')); // Same db
+      const mobileSnap = await getDocs(collection(mobileDb, 'calculations')); // mobile app data
       mobileSnap.forEach(doc => {
         const data = doc.data();
         const barangay = data.barangay;
@@ -184,10 +184,10 @@ export default function LiveStatsPage() {
     return () => unsubAuth();
   }, [router]);
 
-  // Fixed: both onSnapshot listeners use the same Firestore instance
+  // Real-time listeners from both Firestore instances
   useEffect(() => {
     const unsubWeb = onSnapshot(collection(webCemmsDb, 'emissions'), () => fetchData());
-    const unsubMobile = onSnapshot(collection(webCemmsDb, 'calculations'), () => fetchData());
+    const unsubMobile = onSnapshot(collection(mobileDb, 'calculations'), () => fetchData());
     return () => { unsubWeb(); unsubMobile(); };
   }, []);
 

@@ -4,9 +4,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { auth, db } from '@/lib/firebase';
+import { auth, mobileDb, webCemmsDb } from '@/app/lib/combinedFirebase';
 import { signOut } from 'firebase/auth';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot } from 'firebase/firestore';
 import StaffSidebar from '../lib/StaffSidebar';
 import {
   Leaf, Home, MapPin, AlertTriangle, Trophy, Activity, Calendar,
@@ -61,7 +61,7 @@ export default function StaffDashboard() {
       const allRecords: any[] = [];
 
       // 1. Fetch from 'calculations' collection (mobile app)
-      const calcSnapshot = await getDocs(collection(db, 'calculations'));
+      const calcSnapshot = await getDocs(collection(mobileDb, 'calculations'));
       calcSnapshot.forEach(doc => {
         const data = doc.data();
         const barangay = data.barangay;
@@ -80,7 +80,7 @@ export default function StaffDashboard() {
       });
 
       // 2. Fetch from 'emissions' collection (web app)
-      const emissionsSnapshot = await getDocs(collection(db, 'emissions'));
+      const emissionsSnapshot = await getDocs(collection(webCemmsDb, 'emissions'));
       emissionsSnapshot.forEach(doc => {
         const data = doc.data();
         const barangay = data.barangay;
@@ -119,6 +119,13 @@ export default function StaffDashboard() {
       console.error('Error fetching data:', error);
     }
   };
+
+  // Real-time listeners for both databases
+  useEffect(() => {
+    const unsubMobile = onSnapshot(collection(mobileDb, 'calculations'), () => fetchData());
+    const unsubWeb = onSnapshot(collection(webCemmsDb, 'emissions'), () => fetchData());
+    return () => { unsubMobile(); unsubWeb(); };
+  }, []);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {

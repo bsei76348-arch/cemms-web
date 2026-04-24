@@ -88,7 +88,7 @@ export default function StaffLiveMap() {
       barangays.forEach(b => { barangayEmissions[b] = 0; });
 
       // 1. Calculations
-      const calculationsSnap = await getDocs(collection(db, 'calculations'));
+      const calculationsSnap = await getDocs(collection(mobileDb, 'calculations'));
       calculationsSnap.forEach(doc => {
         const data = doc.data();
         const barangay = normalizeBarangayName(data.barangay || '');
@@ -97,7 +97,7 @@ export default function StaffLiveMap() {
       });
 
       // 2. Bills
-      const billsSnap = await getDocs(collection(db, 'bills'));
+      const billsSnap = await getDocs(collection(mobileDb, 'bills'));
       billsSnap.forEach(doc => {
         const data = doc.data();
         const barangay = normalizeBarangayName(data.barangay || '');
@@ -106,7 +106,7 @@ export default function StaffLiveMap() {
       });
 
       // 3. Emissions (web inputs)
-      const emissionsSnap = await getDocs(collection(db, 'emissions'));
+      const emissionsSnap = await getDocs(collection(webCemmsDb, 'emissions'));
       emissionsSnap.forEach(doc => {
         const data = doc.data();
         const barangay = normalizeBarangayName(data.barangay || '');

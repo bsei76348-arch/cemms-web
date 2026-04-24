@@ -3,15 +3,15 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth, db } from '@/lib/firebase';
-import { collection, getDocs, addDoc, updateDoc, doc, query, orderBy } from 'firebase/firestore';
+import { auth, mobileDb, webCemmsDb } from '@/app/lib/combinedFirebase';
+import { collection, getDocs, addDoc, updateDoc, doc, query, orderBy, onSnapshot } from 'firebase/firestore';
 import {
   FileText, Leaf, BarChart3, Ruler, Award, Calendar,
   Download, Printer, RefreshCw, Filter, X, Flag, Eye, Check, Clock,
   TrendingUp, Monitor, Smartphone, ChevronUp, ChevronDown,
   MapPin, AlertTriangle, CheckCircle, Info
 } from 'lucide-react';
-import StaffSidebar from '@/app/lib/StaffSidebar';
+import AdminSidebar from '@/app/lib/AdminSidebar';
 
 // 16 barangays ng Marilao
 const BARANGAYS = [
@@ -63,7 +63,7 @@ interface ReportRecord {
   date: Date;
 }
 
-export default function StaffReports() {
+export default function AdminReports() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'reports' | 'flags'>('reports');
@@ -96,13 +96,27 @@ export default function StaffReports() {
   };
 
   // Fetch all emission data from three sources
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (e) {
+      console.log('Sign out error (mock user):', e);
+    } finally {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('cemms_user');
+      }
+      router.push('/login');
+    }
+  };
+
   const fetchAllData = async () => {
     setIsGenerating(true);
     try {
       const [calcSnap, billsSnap, webSnap] = await Promise.all([
-        getDocs(collection(db, 'calculations')),
-        getDocs(collection(db, 'bills')),
-        getDocs(collection(db, 'emissions'))
+        getDocs(collection(mobileDb, 'calculations')),
+        getDocs(collection(mobileDb, 'bills')),
+        getDocs(collection(webCemmsDb, 'emissions'))
       ]);
       const records: ReportRecord[] = [];
 
@@ -299,7 +313,7 @@ export default function StaffReports() {
   // Flag management
   const fetchFlags = async () => {
     try {
-      const q = query(collection(db, 'flags'), orderBy('createdAt', 'desc'));
+      const q = query(collection(webCemmsDb, 'flags'), orderBy('createdAt', 'desc'));
       const snapshot = await getDocs(q);
       const flagsData: Flag[] = snapshot.docs.map(doc => {
         const data = doc.data();
@@ -340,7 +354,7 @@ export default function StaffReports() {
         status: 'pending',
         reason,
       };
-      const docRef = await addDoc(collection(db, 'flags'), newFlag);
+      const docRef = await addDoc(collection(webCemmsDb, 'flags'), newFlag);
       setFlags(prev => [{ id: docRef.id, ...newFlag }, ...prev]);
       addToast('success', `${barangay} flagged successfully!`);
     } catch (error: any) {
@@ -354,13 +368,22 @@ export default function StaffReports() {
   const handleUpdateFlagStatus = async (flagId: string, newStatus: 'reviewed' | 'resolved') => {
     if (!confirm(`Mark as ${newStatus}?`)) return;
     try {
-      await updateDoc(doc(db, 'flags', flagId), { status: newStatus });
+      await updateDoc(doc(webCemmsDb, 'flags', flagId), { status: newStatus });
       setFlags(prev => prev.map(f => f.id === flagId ? { ...f, status: newStatus } : f));
       addToast('success', `Flag ${newStatus}`);
     } catch (error) {
       addToast('error', 'Update failed');
     }
   };
+
+
+  // Real-time listeners for live sync
+  useEffect(() => {
+    const unsubCalc = onSnapshot(collection(mobileDb, 'calculations'), () => fetchAllData());
+    const unsubBills = onSnapshot(collection(mobileDb, 'bills'), () => fetchAllData());
+    const unsubEmissions = onSnapshot(collection(webCemmsDb, 'emissions'), () => fetchAllData());
+    return () => { unsubCalc(); unsubBills(); unsubEmissions(); };
+  }, []);
 
   // Authentication with mock fallback
   useEffect(() => {
@@ -431,7 +454,7 @@ export default function StaffReports() {
 
   return (
     <div style={{ display: 'flex', background: '#F8FDF9', minHeight: '100vh' }}>
-      <StaffSidebar userName={userName} />
+      <AdminSidebar userName={userName} onLogout={handleLogout} />
 
       <div className="main-content">
         {/* Toast Container */}
@@ -461,7 +484,7 @@ export default function StaffReports() {
               <Download size={16} /> Export
             </button>
             <div className="staff-badge">
-              <span className="live-dot"></span> STAFF
+              <span className="live-dot"></span> ADMIN
             </div>
             <div className="date-badge">
               <Calendar size={14} /> {new Date().toLocaleDateString()}
