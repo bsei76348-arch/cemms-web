@@ -350,25 +350,7 @@ export default function StaffReports() {
     }
   };
 
-  const handleUpdateFlagStatus = async (flagId: string, newStatus: 'reviewed' | 'resolved') => {
-    if (!confirm(`Mark as ${newStatus}?`)) return;
-    try {
-      await updateDoc(doc(webCemmsDb, 'flags', flagId), { status: newStatus });
-      addToast('success', `Flag ${newStatus}`);
-    } catch (error) {
-      addToast('error', 'Update failed');
-    }
-  };
-
-  const handleDeleteFlag = async (flagId: string) => {
-    if (!confirm('Delete this flag permanently?')) return;
-    try {
-      await deleteDoc(doc(webCemmsDb, 'flags', flagId));
-      addToast('success', 'Flag deleted');
-    } catch (error) {
-      addToast('error', 'Delete failed');
-    }
-  };
+  // Staff can only flag — admin handles review/resolve/delete
 
   // Real-time emission listeners
   useEffect(() => {
@@ -689,19 +671,7 @@ export default function StaffReports() {
                             </span>
                           </td>
                           <td>
-                            <div className="action-buttons">
-                              {flag.status === 'pending' && (
-                                <>
-                                  <button className="btn-review" onClick={() => handleUpdateFlagStatus(flag.id, 'reviewed')}>Review</button>
-                                  <button className="btn-resolve" onClick={() => handleUpdateFlagStatus(flag.id, 'resolved')}>Resolve</button>
-                                </>
-                              )}
-                              {flag.status === 'reviewed' && (
-                                <button className="btn-resolve" onClick={() => handleUpdateFlagStatus(flag.id, 'resolved')}>Resolve</button>
-                              )}
-                              {flag.status === 'resolved' && <span className="resolved-text">✓ Resolved</span>}
-                              <button className="btn-delete" onClick={() => handleDeleteFlag(flag.id)} title="Delete flag"><Trash2 size={14} /></button>
-                            </div>
+                            <span style={{fontSize:'12px',color:'#94A3B8'}}>Admin manages this</span>
                           </td>
                         </tr>
                       );
