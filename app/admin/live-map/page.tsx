@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Map, MapPin, Palette, RefreshCw, TrendingUp, AlertTriangle, CheckCircle, Calendar } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { auth, db } from '@/lib/firebase';
+import { auth, mobileDb, webCemmsDb } from '@/app/lib/combinedFirebase';
 import { signOut } from 'firebase/auth';
 import { collection, getDocs, onSnapshot } from 'firebase/firestore';
 import AdminSidebar from '../../lib/AdminSidebar';
@@ -87,7 +87,7 @@ export default function LiveMapPage() {
             const barangayEmissions: Record<string, number> = {};
       barangays.forEach(b => { barangayEmissions[b] = 0; });
 
-      const calculationsSnap = await getDocs(collection(db, 'calculations'));
+      const calculationsSnap = await getDocs(collection(mobileDb, 'calculations'));
       calculationsSnap.forEach(doc => {
         const data = doc.data();
         const barangay = normalizeBarangayName(data.barangay || '');
@@ -95,7 +95,7 @@ export default function LiveMapPage() {
         if (barangayEmissions[barangay] !== undefined) barangayEmissions[barangay] += amount;
       });
 
-      const billsSnap = await getDocs(collection(db, 'bills'));
+      const billsSnap = await getDocs(collection(mobileDb, 'bills'));
       billsSnap.forEach(doc => {
         const data = doc.data();
         const barangay = normalizeBarangayName(data.barangay || '');
@@ -103,7 +103,7 @@ export default function LiveMapPage() {
         if (barangayEmissions[barangay] !== undefined) barangayEmissions[barangay] += amount;
       });
 
-      const emissionsSnap = await getDocs(collection(db, 'emissions'));
+      const emissionsSnap = await getDocs(collection(webCemmsDb, 'emissions'));
       emissionsSnap.forEach(doc => {
         const data = doc.data();
         const barangay = normalizeBarangayName(data.barangay || '');
@@ -127,9 +127,9 @@ export default function LiveMapPage() {
   // Real-time listeners
   useEffect(() => {
     fetchAllEmissions();
-    const unsubCalc = onSnapshot(collection(db, 'calculations'), () => fetchAllEmissions());
-    const unsubBills = onSnapshot(collection(db, 'bills'), () => fetchAllEmissions());
-    const unsubEmissions = onSnapshot(collection(db, 'emissions'), () => fetchAllEmissions());
+    const unsubCalc = onSnapshot(collection(mobileDb, 'calculations'), () => fetchAllEmissions());
+    const unsubBills = onSnapshot(collection(mobileDb, 'bills'), () => fetchAllEmissions());
+    const unsubEmissions = onSnapshot(collection(webCemmsDb, 'emissions'), () => fetchAllEmissions());
     return () => { unsubCalc(); unsubBills(); unsubEmissions(); };
   }, []);
 

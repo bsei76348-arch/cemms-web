@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { auth } from '@/lib/firebase';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import { 
   Lock, Eye, EyeOff, AlertCircle, CheckCircle2, ClipboardList,
   Leaf, Shield, UserCog
@@ -19,107 +20,104 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
     setLoading(true);
 
-    setTimeout(() => {
-      if (email === 'admin@cemms.com' && password === 'admin123') {
-        // Create a complete mock Firebase user with all required methods
-        const mockUser = {
-          uid: 'mock-admin-uid',
-          email: 'admin@cemms.com',
-          displayName: 'Admin',
-          emailVerified: true,
-          isAnonymous: false,
-          phoneNumber: null,
-          photoURL: null,
-          providerData: [],
+    // Demo accounts for testing (no real Firebase needed)
+    const demoAccounts = [
+      { email: 'admin@cemms.com', password: 'admin123', role: 'admin', name: 'Admin' },
+      { email: 'staff@cemms.com', password: 'staff123', role: 'staff', name: 'Staff' },
+
+    ];
+
+    // Check if demo account
+    const demoAccount = demoAccounts.find(d => d.email === email && d.password === password);
+
+    if (demoAccount) {
+      // Mock user for demo accounts
+      const mockUser = {
+        uid: `mock-${demoAccount.role}-${Date.now()}`,
+        email: demoAccount.email,
+        displayName: demoAccount.name,
+        emailVerified: true,
+        isAnonymous: false,
+        phoneNumber: null,
+        photoURL: null,
+        providerData: [],
+        refreshToken: 'mock-refresh-token',
+        tenantId: null,
+        metadata: {
+          creationTime: new Date().toISOString(),
+          lastSignInTime: new Date().toISOString(),
+        },
+        stsTokenManager: {
+          accessToken: 'mock-access-token',
+          expirationTime: Date.now() + 3600000,
           refreshToken: 'mock-refresh-token',
-          tenantId: null,
-          metadata: {
-            creationTime: new Date().toISOString(),
-            lastSignInTime: new Date().toISOString(),
-          },
-          // Required by Firebase SDK
-          stsTokenManager: {
-            accessToken: 'mock-access-token',
-            expirationTime: Date.now() + 3600000,
-            refreshToken: 'mock-refresh-token',
-          },
-          // Internal methods required by Firebase
-          _stopProactiveRefresh: () => {},
-          _startProactiveRefresh: () => {},
-          delete: async () => {},
-          getIdToken: async () => 'mock-id-token',
-          getIdTokenResult: async () => ({
-            token: 'mock-id-token',
-            signInProvider: null,
-            expirationTime: '',
-            issuedAtTime: '',
-            authTime: '',
-            claims: {}
-          }),
-          reload: async () => {},
-          toJSON: () => ({})
-        };
-        
-        // Override Firebase's currentUser
-        Object.defineProperty(auth, 'currentUser', { value: mockUser, writable: true, configurable: true });
-        localStorage.setItem('cemms_user', JSON.stringify({ email, role: 'admin', uid: mockUser.uid }));
-        
-        setSuccess('Login successful! Redirecting to Admin Dashboard...');
-        setTimeout(() => router.push('/admin'), 1000);
-      } 
-      else if (email === 'staff@cemms.com' && password === 'staff123') {
-        const mockUser = {
-          uid: 'mock-staff-uid',
-          email: 'staff@cemms.com',
-          displayName: 'Staff',
-          emailVerified: true,
-          isAnonymous: false,
-          phoneNumber: null,
-          photoURL: null,
-          providerData: [],
-          refreshToken: 'mock-refresh-token',
-          tenantId: null,
-          metadata: {
-            creationTime: new Date().toISOString(),
-            lastSignInTime: new Date().toISOString(),
-          },
-          // Required by Firebase SDK
-          stsTokenManager: {
-            accessToken: 'mock-access-token',
-            expirationTime: Date.now() + 3600000,
-            refreshToken: 'mock-refresh-token',
-          },
-          _stopProactiveRefresh: () => {},
-          _startProactiveRefresh: () => {},
-          delete: async () => {},
-          getIdToken: async () => 'mock-id-token',
-          getIdTokenResult: async () => ({
-            token: 'mock-id-token',
-            signInProvider: null,
-            expirationTime: '',
-            issuedAtTime: '',
-            authTime: '',
-            claims: {}
-          }),
-          reload: async () => {},
-          toJSON: () => ({})
-        };
-        Object.defineProperty(auth, 'currentUser', { value: mockUser, writable: true, configurable: true });
-        localStorage.setItem('cemms_user', JSON.stringify({ email, role: 'staff', uid: mockUser.uid }));
-        setSuccess('Login successful! Redirecting to Staff Dashboard...');
-        setTimeout(() => router.push('/staff'), 1000);
-      } 
-      else {
-        setError('Invalid email or password. Use demo credentials below.');
-      }
+        },
+        _stopProactiveRefresh: () => {},
+        _startProactiveRefresh: () => {},
+        delete: async () => {},
+        getIdToken: async () => 'mock-id-token',
+        getIdTokenResult: async () => ({
+          token: 'mock-id-token',
+          signInProvider: null,
+          expirationTime: '',
+          issuedAtTime: '',
+          authTime: '',
+          claims: {}
+        }),
+        reload: async () => {},
+        toJSON: () => ({})
+      };
+      
+      Object.defineProperty(auth, 'currentUser', { value: mockUser, writable: true, configurable: true });
+      localStorage.setItem('cemms_user', JSON.stringify({ email, role: demoAccount.role, uid: mockUser.uid }));
+      
+      setSuccess(`Login successful! Redirecting to ${demoAccount.role === 'admin' ? 'Admin' : 'Staff'} Dashboard...`);
+      setTimeout(() => router.push(demoAccount.role === 'admin' ? '/admin' : '/staff'), 1000);
       setLoading(false);
-    }, 500);
+      return;
+    }
+
+    // Try real Firebase authentication
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      
+      // Determine role based on email (you can customize this)
+      let role: 'admin' | 'staff' = 'staff';
+      if (email.toLowerCase().includes('admin')) {
+        role = 'admin';
+      }
+      
+      localStorage.setItem('cemms_user', JSON.stringify({ 
+        email, 
+        role, 
+        uid: user.uid 
+      }));
+      
+      setSuccess('Login successful! Redirecting...');
+      setTimeout(() => router.push(role === 'admin' ? '/admin' : '/staff'), 1000);
+    } catch (err: any) {
+      console.error('Firebase login error:', err);
+      
+      // Fallback error message
+      if (err.code === 'auth/user-not-found') {
+        setError('No account found with this email.');
+      } else if (err.code === 'auth/wrong-password') {
+        setError('Incorrect password.');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Invalid email format.');
+      } else {
+        setError('Login failed. Use demo credentials or check your Firebase connection.');
+      }
+    }
+    
+    setLoading(false);
   };
 
   const togglePasswordVisibility = () => setShowPassword(!showPassword);
@@ -203,9 +201,10 @@ export default function LoginPage() {
             <Shield className="w-4 h-4 inline mr-1" /> <strong>Admin:</strong> admin@cemms.com / admin123
           </p>
           <p onClick={() => fillDemoCredentials('staff1')} className="demo-item">
-            <UserCog className="w-4 h-4 inline mr-1" /> <strong>Staff:</strong> staff@cemms.com / staff123
+            <UserCog className="w-4 h-4 inline mr-1" /> <strong>Staff 1:</strong> staff@cemms.com / staff123
           </p>
-          <small className="demo-note">Click to auto-fill. Uses mock Firebase login.</small>
+
+          <small className="demo-note">Click to auto-fill. Demo uses mock login, real credentials use Firebase.</small>
         </div>
         
         <div className="links">

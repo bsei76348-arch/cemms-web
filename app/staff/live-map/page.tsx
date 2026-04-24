@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth, db } from '@/lib/firebase';
+import { auth, mobileDb, webCemmsDb } from '@/app/lib/combinedFirebase';
 import { signOut } from 'firebase/auth';
 import { collection, getDocs, onSnapshot } from 'firebase/firestore';
 import StaffSidebar from '@/app/lib/StaffSidebar';
@@ -130,9 +130,9 @@ export default function StaffLiveMap() {
   // Real-time listeners
   useEffect(() => {
     fetchAllEmissions();
-    const unsubCalc = onSnapshot(collection(db, 'calculations'), () => fetchAllEmissions());
-    const unsubBills = onSnapshot(collection(db, 'bills'), () => fetchAllEmissions());
-    const unsubEmissions = onSnapshot(collection(db, 'emissions'), () => fetchAllEmissions());
+    const unsubCalc = onSnapshot(collection(mobileDb, 'calculations'), () => fetchAllEmissions());
+    const unsubBills = onSnapshot(collection(mobileDb, 'bills'), () => fetchAllEmissions());
+    const unsubEmissions = onSnapshot(collection(webCemmsDb, 'emissions'), () => fetchAllEmissions());
     return () => { unsubCalc(); unsubBills(); unsubEmissions(); };
   }, []);
 

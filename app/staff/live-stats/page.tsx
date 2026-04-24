@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth, db } from '@/lib/firebase';
+import { auth, mobileDb, webCemmsDb } from '@/app/lib/combinedFirebase';
 import { signOut } from 'firebase/auth';
 import { collection, getDocs, onSnapshot } from 'firebase/firestore';
 import StaffSidebar from '@/app/lib/StaffSidebar';
@@ -189,9 +189,9 @@ export default function StaffLiveStats() {
   // Real-time listeners
   useEffect(() => {
     fetchData();
-    const unsubCalc = onSnapshot(collection(db, 'calculations'), () => fetchData());
-    const unsubBills = onSnapshot(collection(db, 'bills'), () => fetchData());
-    const unsubEmissions = onSnapshot(collection(db, 'emissions'), () => fetchData());
+    const unsubCalc = onSnapshot(collection(mobileDb, 'calculations'), () => fetchData());
+    const unsubBills = onSnapshot(collection(mobileDb, 'bills'), () => fetchData());
+    const unsubEmissions = onSnapshot(collection(webCemmsDb, 'emissions'), () => fetchData());
     return () => {
       unsubCalc();
       unsubBills();
